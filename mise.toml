@@ -13,8 +13,9 @@ experimental = true
 
 [tools]
 rust = { version = "1.100.0", components = "clippy,rustfmt" }
-# SDL3 is compiled from source by the sdl3-sys crate.
-cmake = "4.5.0"
+# SDL3 is compiled from source by the sdl3-sys crate. Official Kitware
+# archives (the asdf cmake plugin produces an app bundle macOS refuses to run).
+"github:Kitware/CMake" = { version = "4.5.0", platforms = { macos-arm64 = { asset_pattern = "cmake-*-macos-universal.tar.gz", bin_path = "cmake-4.5.0-macos-universal/CMake.app/Contents/bin" }, macos-x64 = { asset_pattern = "cmake-*-macos-universal.tar.gz", bin_path = "cmake-4.5.0-macos-universal/CMake.app/Contents/bin" }, linux-x64 = { asset_pattern = "cmake-*-linux-x86_64.tar.gz", bin_path = "cmake-4.5.0-linux-x86_64/bin" }, linux-arm64 = { asset_pattern = "cmake-*-linux-aarch64.tar.gz", bin_path = "cmake-4.5.0-linux-aarch64/bin" } } }
 # Static FFmpeg *command line* (libx264 + libopus), only used to generate the
 # mock server's test media. The FFmpeg *libraries* are built by `mise run ffmpeg`.
 "github:eugeneware/ffmpeg-static" = { version = "b6.1.1", bin = "ffmpeg", platforms = { macos-arm64 = { asset_pattern = "ffmpeg-darwin-arm64.gz" }, macos-x64 = { asset_pattern = "ffmpeg-darwin-x64.gz" }, linux-x64 = { asset_pattern = "ffmpeg-linux-x64.gz" }, linux-arm64 = { asset_pattern = "ffmpeg-linux-arm64.gz" } } }
