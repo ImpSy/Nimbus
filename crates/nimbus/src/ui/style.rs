@@ -11,11 +11,23 @@ pub fn apply(ctx: &egui::Context) {
     ctx.all_styles_mut(|style| {
         use egui::{FontFamily, FontId, TextStyle};
         style.text_styles = [
-            (TextStyle::Heading, FontId::new(30.0, FontFamily::Proportional)),
+            (
+                TextStyle::Heading,
+                FontId::new(30.0, FontFamily::Proportional),
+            ),
             (TextStyle::Body, FontId::new(17.0, FontFamily::Proportional)),
-            (TextStyle::Button, FontId::new(17.0, FontFamily::Proportional)),
-            (TextStyle::Small, FontId::new(13.0, FontFamily::Proportional)),
-            (TextStyle::Monospace, FontId::new(14.0, FontFamily::Monospace)),
+            (
+                TextStyle::Button,
+                FontId::new(17.0, FontFamily::Proportional),
+            ),
+            (
+                TextStyle::Small,
+                FontId::new(13.0, FontFamily::Proportional),
+            ),
+            (
+                TextStyle::Monospace,
+                FontId::new(14.0, FontFamily::Monospace),
+            ),
         ]
         .into();
         style.spacing.item_spacing = egui::vec2(10.0, 10.0);

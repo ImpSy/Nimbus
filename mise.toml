@@ -1,2 +1,113 @@
+# Everything needed to build and run Nimbus. On a fresh clone:
+#
+#   mise trust && mise install      # toolchains + builds the static FFmpeg
+#   mise run app                    # build & run
+#   mise tasks                      # list everything else
+#
+# Only the system C toolchain (Xcode Command Line Tools on macOS,
+# build-essential + a few -dev packages on Linux) is assumed.
+
+[settings]
+# `[hooks]` below are an experimental mise feature.
+experimental = true
+
 [tools]
-rust = "1.100.0"
+rust = { version = "1.100.0", components = "clippy,rustfmt" }
+# SDL3 is compiled from source by the sdl3-sys crate.
+cmake = "4.5.0"
+# Static FFmpeg *command line* (libx264 + libopus), only used to generate the
+# mock server's test media. The FFmpeg *libraries* are built by `mise run ffmpeg`.
+"github:eugeneware/ffmpeg-static" = { version = "b6.1.1", bin = "ffmpeg", platforms = { macos-arm64 = { asset_pattern = "ffmpeg-darwin-arm64.gz" }, macos-x64 = { asset_pattern = "ffmpeg-darwin-x64.gz" }, linux-x64 = { asset_pattern = "ffmpeg-linux-x64.gz" }, linux-arm64 = { asset_pattern = "ffmpeg-linux-arm64.gz" } } }
+
+[env]
+# Minimal static FFmpeg (per platform; survives `cargo clean`). ffmpeg-sys-next
+# picks it up from here, so plain `cargo build` works inside the mise env.
+FFMPEG_DIR = "{{config_root}}/.deps/ffmpeg-{{os()}}-{{arch()}}"
+
+[hooks]
+# `mise install` on a fresh clone also builds the native dependencies.
+postinstall = "mise run setup"
+
+# ---------------------------------------------------------------- setup
+
+[tasks.setup]
+description = "Build native dependencies (static FFmpeg)"
+depends = ["ffmpeg"]
+run = "echo 'Nimbus is ready: mise run app'"
+
+[tasks.ffmpeg]
+description = "Build the minimal static FFmpeg into $FFMPEG_DIR (no-op when up to date)"
+run = "scripts/build-ffmpeg.sh"
+
+# ---------------------------------------------------------------- develop
+
+[tasks.app]
+description = "Build and run Nimbus (release)"
+depends = ["ffmpeg"]
+run = "cargo run --release -p nimbus"
+
+[tasks.dev]
+description = "Build and run Nimbus (debug)"
+depends = ["ffmpeg"]
+run = "cargo run -p nimbus"
+
+[tasks.build]
+description = "Release build of the app"
+depends = ["ffmpeg"]
+run = "cargo build --release -p nimbus"
+
+[tasks.test]
+description = "Run all tests"
+depends = ["ffmpeg"]
+run = "cargo test --workspace"
+
+[tasks.lint]
+description = "Clippy + formatting check"
+depends = ["ffmpeg"]
+run = ["cargo fmt --all --check", "cargo clippy --workspace --all-targets"]
+
+[tasks.fmt]
+description = "Format the code"
+run = "cargo fmt --all"
+
+[tasks.bench]
+description = "Hardware vs software H.264 decoder benchmark"
+depends = ["ffmpeg"]
+run = "cargo test -p nimbus-media --release bench -- --ignored --nocapture"
+
+# ---------------------------------------------------------------- mock server
+
+[tasks."mock:media"]
+description = "Generate the mock server's test media (H.264 + Opus)"
+run = "scripts/mock-media.sh target/mock-media"
+
+[tasks."mock:server"]
+description = "Run the mock xCloud server on :8085"
+depends = ["mock:media"]
+run = "cargo run -p xcloud --example mock_server -- target/mock-media 8085"
+
+[tasks.mock]
+description = "Run Nimbus against the mock server (no Microsoft account needed)"
+depends = ["mock:media", "ffmpeg"]
+run = "scripts/mock.sh"
+
+# ---------------------------------------------------------------- packaging
+
+[tasks."bundle:macos"]
+description = "Self-contained target/Nimbus.app"
+depends = ["ffmpeg"]
+run = "packaging/macos/bundle.sh"
+
+[tasks."deck:image"]
+description = "Build the Linux / Steam Deck build container (needs Docker)"
+run = "docker build --platform linux/amd64 -t nimbus-build packaging/linux"
+
+[tasks."deck:build"]
+description = "Build the Steam Deck (x86_64) release in Docker → target/deck/"
+depends = ["deck:image"]
+run = "packaging/linux/docker-run.sh packaging/linux/build.sh"
+
+[tasks."deck:e2e"]
+description = "Headless Linux end-to-end test in Docker (Xvfb + lavapipe + mock server)"
+depends = ["deck:image", "mock:media"]
+run = "packaging/linux/docker-run.sh packaging/linux/e2e.sh"

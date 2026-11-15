@@ -54,7 +54,10 @@ fn split_access_units(data: &[u8]) -> Vec<Vec<u8>> {
         }
     }
     starts.push(data.len());
-    starts.windows(2).map(|w| data[w[0]..w[1]].to_vec()).collect()
+    starts
+        .windows(2)
+        .map(|w| data[w[0]..w[1]].to_vec())
+        .collect()
 }
 
 fn is_idr(au: &[u8]) -> bool {
@@ -102,11 +105,16 @@ fn main() {
     let media_dir = args.next().unwrap_or_else(|| "target/mock-media".into());
     let port: u16 = args.next().and_then(|p| p.parse().ok()).unwrap_or(8085);
 
-    let video = std::fs::read(format!("{media_dir}/video.h264")).expect("video.h264 (run scripts/mock-media.sh)");
+    let video = std::fs::read(format!("{media_dir}/video.h264"))
+        .expect("video.h264 (run scripts/mock-media.sh)");
     let aus = split_access_units(&video);
     let audio = std::fs::read(format!("{media_dir}/audio.opus")).expect("audio.opus");
     let opus = ogg_opus_packets(&audio);
-    tracing::info!(frames = aus.len(), audio_packets = opus.len(), "media loaded");
+    tracing::info!(
+        frames = aus.len(),
+        audio_packets = opus.len(),
+        "media loaded"
+    );
 
     let shared = Arc::new(Mutex::new(Shared::default()));
     {
@@ -239,13 +247,16 @@ fn run_session(
                                 match v["type"].as_str() {
                                     Some("Handshake") => {
                                         tracing::info!("message handshake → ack");
-                                        let ack = json!({"type":"HandshakeAck","id":v["id"],"cv":"0"}).to_string();
+                                        let ack =
+                                            json!({"type":"HandshakeAck","id":v["id"],"cv":"0"})
+                                                .to_string();
                                         if let Some(mut ch) = rtc.channel(d.id) {
                                             ch.write(false, ack.as_bytes())?;
                                         }
                                         handshake = true;
                                         // Tell the client the stream size.
-                                        if let Some((input, _)) = channels.iter().find(|(_, l)| l == "input")
+                                        if let Some((input, _)) =
+                                            channels.iter().find(|(_, l)| l == "input")
                                             && let Some(mut ch) = rtc.channel(*input)
                                         {
                                             let mut p = vec![report::SERVER_METADATA as u8, 0];
@@ -254,7 +265,9 @@ fn run_session(
                                             ch.write(true, &p)?;
                                         }
                                     }
-                                    Some("Message") => tracing::info!(target = %v["target"], "client message"),
+                                    Some("Message") => {
+                                        tracing::info!(target = %v["target"], "client message")
+                                    }
                                     Some("TransactionComplete") => {
                                         tracing::info!(content = %v["content"], "dialog answered")
                                     }
@@ -292,17 +305,25 @@ fn run_session(
                                         let buttons = u16::from_le_bytes([p[off + 1], p[off + 2]]);
                                         let lx = i16::from_le_bytes([p[off + 3], p[off + 4]]);
                                         if idx == 0 && buttons != last_buttons {
-                                            tracing::info!(buttons = format!("{buttons:#06x}"), lx, "gamepad 0");
+                                            tracing::info!(
+                                                buttons = format!("{buttons:#06x}"),
+                                                lx,
+                                                "gamepad 0"
+                                            );
                                             let pressed = buttons & !last_buttons;
                                             if pressed & button::A != 0 {
                                                 // Rumble: 60% / 100%, 300 ms.
-                                                let vib = [128u8, 0, 0, 0, 60, 100, 0, 30, 0x2c, 0x01, 0, 0, 0];
+                                                let vib = [
+                                                    128u8, 0, 0, 0, 60, 100, 0, 30, 0x2c, 0x01, 0,
+                                                    0, 0,
+                                                ];
                                                 if let Some(mut ch) = rtc.channel(d.id) {
                                                     ch.write(true, &vib)?;
                                                 }
                                             }
                                             if pressed & button::Y != 0
-                                                && let Some((m, _)) = channels.iter().find(|(_, l)| l == "message")
+                                                && let Some((m, _)) =
+                                                    channels.iter().find(|(_, l)| l == "message")
                                                 && let Some(mut ch) = rtc.channel(*m)
                                             {
                                                 let content = json!({"TitleText":"Quit game?","ContentText":"Progress since the last checkpoint will be lost.","CommandLabel1":"Quit","CommandLabel2":"Cancel"}).to_string();
@@ -444,7 +465,16 @@ fn http_server(port: u16, shared: Arc<Mutex<Shared>>) {
                 ]})),
             ),
             ("GET", ["v2", "titles"]) | ("GET", ["v2", "titles", "mru"]) => {
-                let names = ["Forza Horizon", "Halo Infinite", "Starfield", "Sea of Thieves", "Hollow Knight", "Ori", "Gears 5", "Hi-Fi Rush"];
+                let names = [
+                    "Forza Horizon",
+                    "Halo Infinite",
+                    "Starfield",
+                    "Sea of Thieves",
+                    "Hollow Knight",
+                    "Ori",
+                    "Gears 5",
+                    "Hi-Fi Rush",
+                ];
                 let results: Vec<Value> = names
                     .iter()
                     .enumerate()
@@ -463,7 +493,9 @@ fn http_server(port: u16, shared: Arc<Mutex<Shared>>) {
                 respond(
                     req,
                     200,
-                    Some(json!({"sessionId": format!("S{id}"), "sessionPath": format!("v5/sessions/{kind}/S{id}"), "state": "Provisioning"})),
+                    Some(
+                        json!({"sessionId": format!("S{id}"), "sessionPath": format!("v5/sessions/{kind}/S{id}"), "state": "Provisioning"}),
+                    ),
                 )
             }
             ("GET", ["v5", "sessions", _, _, "state"]) => {
@@ -472,7 +504,11 @@ fn http_server(port: u16, shared: Arc<Mutex<Shared>>) {
                     s.polls += 1;
                     s.polls
                 };
-                let state = if polls < 2 { "Provisioning" } else { "Provisioned" };
+                let state = if polls < 2 {
+                    "Provisioning"
+                } else {
+                    "Provisioned"
+                };
                 respond(req, 200, Some(json!({ "state": state })))
             }
             ("GET", ["v5", "sessions", _, _, "configuration"]) => {
@@ -491,8 +527,13 @@ fn http_server(port: u16, shared: Arc<Mutex<Shared>>) {
                 let answer = shared.lock().unwrap().answer.clone();
                 match answer {
                     Some(sdp) => {
-                        let inner = json!({"sdp": sdp, "sdpType": "answer", "status": "success"}).to_string();
-                        respond(req, 200, Some(json!({"exchangeResponse": inner, "errorDetails": null})))
+                        let inner = json!({"sdp": sdp, "sdpType": "answer", "status": "success"})
+                            .to_string();
+                        respond(
+                            req,
+                            200,
+                            Some(json!({"exchangeResponse": inner, "errorDetails": null})),
+                        )
                     }
                     None => respond(req, 204, None),
                 }
@@ -518,7 +559,11 @@ fn http_server(port: u16, shared: Arc<Mutex<Shared>>) {
                             {"candidate": "a=end-of-candidates", "messageType": "iceCandidate", "sdpMLineIndex": "0", "sdpMid": "0"}
                         ])
                         .to_string();
-                        respond(req, 200, Some(json!({"exchangeResponse": inner, "errorDetails": null})))
+                        respond(
+                            req,
+                            200,
+                            Some(json!({"exchangeResponse": inner, "errorDetails": null})),
+                        )
                     }
                     None => respond(req, 204, None),
                 }

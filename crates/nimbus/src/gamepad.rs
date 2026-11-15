@@ -6,10 +6,10 @@
 
 use std::time::{Duration, Instant};
 
+use sdl3::GamepadSubsystem;
 use sdl3::gamepad::{Axis, Button, Gamepad};
 use sdl3::joystick::JoystickId;
-use sdl3::GamepadSubsystem;
-use xcloud::protocol::input::{button, stick_from_sdl, trigger_from_sdl, GamepadState, Vibration};
+use xcloud::protocol::input::{GamepadState, Vibration, button, stick_from_sdl, trigger_from_sdl};
 use xcloud::stream::Command;
 
 use crate::shared::{NavAction, Shared, UiMsg};

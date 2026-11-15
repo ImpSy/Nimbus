@@ -67,7 +67,10 @@ pub fn initial_configuration(width: u32, height: u32, install_id: &str) -> Vec<S
             "/streaming/characteristics/touchinputenabledchanged",
             json!({ "touchInputEnabled": false }),
         ),
-        message("/streaming/characteristics/clientdevicecapabilities", json!({})),
+        message(
+            "/streaming/characteristics/clientdevicecapabilities",
+            json!({}),
+        ),
         message(
             "/streaming/characteristics/dimensionschanged",
             json!({

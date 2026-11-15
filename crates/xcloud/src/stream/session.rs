@@ -348,7 +348,9 @@ pub async fn start_stream(
         .filter_map(|c| Candidate::host(c.addr, "udp").ok())
         .collect();
     if remote.is_empty() {
-        return Err(Error::Session("The server sent no usable ICE candidates".into()));
+        return Err(Error::Session(
+            "The server sent no usable ICE candidates".into(),
+        ));
     }
 
     // 4. Hand everything to the network thread.
@@ -388,7 +390,10 @@ pub async fn start_stream(
                             break;
                         }
                     }
-                    Err(crate::Error::Http { status: 401 | 403 | 404, .. }) => {
+                    Err(crate::Error::Http {
+                        status: 401 | 403 | 404,
+                        ..
+                    }) => {
                         tracing::warn!("keepalive rejected; session token expired or session gone");
                         break;
                     }

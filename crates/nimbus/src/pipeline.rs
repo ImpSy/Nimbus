@@ -159,7 +159,11 @@ fn video_thread(
                 have_decoded = true;
                 let decoded = Instant::now();
                 let ms = decoded.duration_since(decode_start).as_secs_f32() * 1000.0;
-                avg = if avg == 0.0 { ms } else { avg * 0.95 + ms * 0.05 };
+                avg = if avg == 0.0 {
+                    ms
+                } else {
+                    avg * 0.95 + ms * 0.05
+                };
                 {
                     let mut s = stats.lock();
                     s.decoded_frames += 1;
@@ -290,11 +294,7 @@ fn audio_thread(rx: Receiver<EncodedAudioPacket>, buffer_ms: u32) {
         }
         let bytes: &[u8] = bytemuck::cast_slice(&pcm);
         unsafe {
-            sdl_audio::SDL_PutAudioStreamData(
-                stream.0,
-                bytes.as_ptr().cast(),
-                bytes.len() as i32,
-            );
+            sdl_audio::SDL_PutAudioStreamData(stream.0, bytes.as_ptr().cast(), bytes.len() as i32);
         }
         let queued = queued + bytes.len() as i32;
         if !playing && queued >= target / 2 {

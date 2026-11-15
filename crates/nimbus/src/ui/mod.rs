@@ -269,7 +269,8 @@ pub fn run(init: UiInit) -> anyhow::Result<()> {
         if app.settings.present != present_pref {
             present_pref = app.settings.present;
             renderer.set_present(present_pref);
-            app.renderer_info = format!("{} · {:?}", renderer.adapter_name, renderer.present_mode());
+            app.renderer_info =
+                format!("{} · {:?}", renderer.adapter_name, renderer.present_mode());
         }
 
         if let Some(pic) = app.take_picture() {

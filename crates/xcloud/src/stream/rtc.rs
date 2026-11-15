@@ -85,7 +85,11 @@ pub(crate) fn bind_sockets(addrs: &[IpAddr]) -> Vec<BoundSocket> {
     use socket2::{Domain, Socket, Type};
     let mut out = Vec::new();
     for ip in addrs {
-        let domain = if ip.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
+        let domain = if ip.is_ipv4() {
+            Domain::IPV4
+        } else {
+            Domain::IPV6
+        };
         let result = (|| -> std::io::Result<BoundSocket> {
             let s = Socket::new(domain, Type::DGRAM, Some(socket2::Protocol::UDP))?;
             if ip.is_ipv6() {
@@ -134,7 +138,11 @@ pub(crate) async fn stun_mappings(
         return Vec::new();
     }
     let mut pending = Vec::new();
-    for (i, s) in sockets.iter().enumerate().filter(|(_, s)| s.local.is_ipv4()) {
+    for (i, s) in sockets
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.local.is_ipv4())
+    {
         let tid: [u8; 12] = *uuid::Uuid::new_v4().as_bytes().first_chunk().unwrap();
         for server in &servers {
             let _ = s.socket.send_to(&stun::binding_request(tid), *server);
@@ -355,7 +363,10 @@ impl Driver {
             }
             if now >= self.last_stats_emit + STATS_INTERVAL {
                 self.last_stats_emit = now;
-                let _ = self.sinks.events.send(StreamEvent::Stats(self.stats.clone()));
+                let _ = self
+                    .sinks
+                    .events
+                    .send(StreamEvent::Stats(self.stats.clone()));
             }
         }
 
@@ -593,9 +604,10 @@ impl Driver {
             Event::IceConnectionStateChange(state) => {
                 tracing::info!(?state, "ICE state");
                 if state == IceConnectionState::Disconnected {
-                    let _ = self.sinks.events.send(StreamEvent::Disconnected(
-                        "Network connection lost".into(),
-                    ));
+                    let _ = self
+                        .sinks
+                        .events
+                        .send(StreamEvent::Disconnected("Network connection lost".into()));
                     self.shutdown = true;
                 }
             }
@@ -621,18 +633,20 @@ impl Driver {
             }
             Event::ChannelData(d) => match self.channels.kind(d.id) {
                 Some(ChannelKind::Message) => self.on_message(&d.data),
-                Some(ChannelKind::Input) => match parse_server_packet(&d.data, self.encoder.version()) {
-                    Some(ServerInput::Vibration(v)) => {
-                        let _ = self.sinks.events.send(StreamEvent::Rumble(v));
+                Some(ChannelKind::Input) => {
+                    match parse_server_packet(&d.data, self.encoder.version()) {
+                        Some(ServerInput::Vibration(v)) => {
+                            let _ = self.sinks.events.send(StreamEvent::Rumble(v));
+                        }
+                        Some(ServerInput::VideoSize { width, height }) => {
+                            let _ = self
+                                .sinks
+                                .events
+                                .send(StreamEvent::VideoSize { width, height });
+                        }
+                        None => {}
                     }
-                    Some(ServerInput::VideoSize { width, height }) => {
-                        let _ = self
-                            .sinks
-                            .events
-                            .send(StreamEvent::VideoSize { width, height });
-                    }
-                    None => {}
-                },
+                }
                 Some(ChannelKind::Control) => {
                     tracing::debug!(data = %String::from_utf8_lossy(&d.data), "control message");
                 }
@@ -647,10 +661,9 @@ impl Driver {
                     Some(ChannelKind::Message | ChannelKind::Control)
                 ) && !self.shutdown
                 {
-                    let _ = self
-                        .sinks
-                        .events
-                        .send(StreamEvent::Disconnected("The console closed the stream".into()));
+                    let _ = self.sinks.events.send(StreamEvent::Disconnected(
+                        "The console closed the stream".into(),
+                    ));
                     self.shutdown = true;
                 }
             }
@@ -704,7 +717,8 @@ impl Driver {
     fn on_media(&mut self, d: MediaData) {
         let rtp_timestamp = d.time.numer() as u32;
         if d.mid == self.video_mid {
-            let keyframe = matches!(d.codec_extra, str0m::format::CodecExtra::H264(e) if e.is_keyframe);
+            let keyframe =
+                matches!(d.codec_extra, str0m::format::CodecExtra::H264(e) if e.is_keyframe);
             if !d.contiguous && !keyframe {
                 self.stats.packets_lost_total += 1;
                 self.request_keyframe(false);
@@ -749,9 +763,11 @@ impl Driver {
                 let meta = self.encoder.client_metadata(1, ts);
                 self.send(ChannelKind::Input, true, meta);
                 let install_id = uuid::Uuid::new_v4().to_string();
-                for m in
-                    messages::initial_configuration(self.video_size.0, self.video_size.1, &install_id)
-                {
+                for m in messages::initial_configuration(
+                    self.video_size.0,
+                    self.video_size.1,
+                    &install_id,
+                ) {
                     self.send(ChannelKind::Message, false, m.into_bytes());
                 }
                 // Start from a clean picture.
@@ -766,10 +782,9 @@ impl Driver {
                         messages::transaction_complete(&id, serde_json::json!("")).into_bytes(),
                     );
                 }
-                let _ = self
-                    .sinks
-                    .events
-                    .send(StreamEvent::Disconnected("The server ended the session".into()));
+                let _ = self.sinks.events.send(StreamEvent::Disconnected(
+                    "The server ended the session".into(),
+                ));
                 self.shutdown = true;
             }
             Some(MessageEvent::TitleInfo(v)) => {

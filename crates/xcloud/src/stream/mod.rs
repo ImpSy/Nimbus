@@ -17,9 +17,7 @@ use std::time::Instant;
 
 use crossbeam_channel::Sender;
 
-pub use session::{
-    CodecPreference, SessionProgress, StreamConfig, StreamSession, start_stream,
-};
+pub use session::{CodecPreference, SessionProgress, StreamConfig, StreamSession, start_stream};
 
 use crate::protocol::input::{FrameMetadata, GamepadState, KeyEvent, Vibration};
 use crate::protocol::messages::Dialog;
@@ -64,7 +62,10 @@ pub enum StreamEvent {
     /// All data channels open and the server acknowledged our handshake.
     Ready,
     Disconnected(String),
-    VideoSize { width: u32, height: u32 },
+    VideoSize {
+        width: u32,
+        height: u32,
+    },
     Rumble(Vibration),
     Dialog(Dialog),
     TitleInfo(serde_json::Value),

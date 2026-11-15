@@ -339,7 +339,9 @@ mod tests {
     #[test]
     fn legacy_v7_header() {
         let mut e = InputEncoder::with_version(7);
-        let p = e.encode(1.0, &[], &[(0, GamepadState::default())], &[]).unwrap();
+        let p = e
+            .encode(1.0, &[], &[(0, GamepadState::default())], &[])
+            .unwrap();
         assert_eq!(p.len(), 13 + 1 + 23);
         assert_eq!(p[0], report::GAMEPAD as u8);
         assert_eq!(u32::from_le_bytes(p[1..5].try_into().unwrap()), 1);
@@ -347,7 +349,13 @@ mod tests {
         let v = [128, 0, 1, 10, 20, 30, 40, 100, 0, 0, 0, 1];
         assert!(matches!(
             parse_server_packet(&v, 7),
-            Some(ServerInput::Vibration(Vibration { gamepad_index: 1, left_motor: 10, duration_ms: 100, repeat: 1, .. }))
+            Some(ServerInput::Vibration(Vibration {
+                gamepad_index: 1,
+                left_motor: 10,
+                duration_ms: 100,
+                repeat: 1,
+                ..
+            }))
         ));
     }
 

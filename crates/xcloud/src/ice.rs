@@ -167,7 +167,10 @@ mod tests {
         // Example from RFC 4380: 2001:0:4136:e378:8000:63bf:3fff:fdd2
         // -> client 192.0.2.45, port 40000
         let a: Ipv6Addr = "2001:0:4136:e378:8000:63bf:3fff:fdd2".parse().unwrap();
-        assert_eq!(teredo_client(a), Some((Ipv4Addr::new(192, 0, 2, 45), 40000)));
+        assert_eq!(
+            teredo_client(a),
+            Some((Ipv4Addr::new(192, 0, 2, 45), 40000))
+        );
         let b: Ipv6Addr = "2603:1076:201:83::AB8:E9FE".parse().unwrap();
         assert_eq!(teredo_client(b), None);
     }
@@ -181,7 +184,9 @@ mod tests {
                 sdp_mline_index: Some(0),
             },
             IceCandidateJson {
-                candidate: "a=candidate:2 1 UDP 1 2001:0:4136:e378:8000:63bf:3fff:fdd2 9002 typ host ".into(),
+                candidate:
+                    "a=candidate:2 1 UDP 1 2001:0:4136:e378:8000:63bf:3fff:fdd2 9002 typ host "
+                        .into(),
                 sdp_mid: Some("0".into()),
                 sdp_mline_index: Some(0),
             },

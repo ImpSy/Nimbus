@@ -74,14 +74,21 @@ fn login(app: &mut App, ui: &mut Ui) {
     let focus_reset = app.request_focus_reset;
     ui.vertical_centered(|ui| {
         ui.add_space((ui.available_height() * 0.12).max(20.0));
-        ui.label(RichText::new("NIMBUS").size(56.0).strong().color(ACCENT_BRIGHT));
+        ui.label(
+            RichText::new("NIMBUS")
+                .size(56.0)
+                .strong()
+                .color(ACCENT_BRIGHT),
+        );
         ui.label(
             RichText::new("Native Xbox remote play & cloud gaming")
                 .size(18.0)
                 .color(TEXT_DIM),
         );
         ui.add_space(40.0);
-        let Screen::Login(state) = &app.screen else { return };
+        let Screen::Login(state) = &app.screen else {
+            return;
+        };
         match state {
             LoginState::Idle => {
                 let b = big_button(ui, "Sign in with Microsoft");
@@ -120,7 +127,8 @@ fn login(app: &mut App, ui: &mut Ui) {
                 ui.horizontal(|ui| {
                     let w = 2.0 * 220.0 + ui.spacing().item_spacing.x;
                     ui.add_space(((ui.available_width() - w) / 2.0).max(0.0));
-                    let b = ui.add(egui::Button::new("Open in browser").min_size(vec2(220.0, 44.0)));
+                    let b =
+                        ui.add(egui::Button::new("Open in browser").min_size(vec2(220.0, 44.0)));
                     if focus_reset {
                         b.request_focus();
                     }
@@ -171,10 +179,19 @@ fn login(app: &mut App, ui: &mut Ui) {
 
 fn home(app: &mut App, ui: &mut Ui) {
     egui::Panel::top("top")
-        .frame(Frame::new().inner_margin(Margin::symmetric(24, 14)).fill(Color32::from_rgb(14, 16, 15)))
+        .frame(
+            Frame::new()
+                .inner_margin(Margin::symmetric(24, 14))
+                .fill(Color32::from_rgb(14, 16, 15)),
+        )
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("NIMBUS").size(26.0).strong().color(ACCENT_BRIGHT));
+                ui.label(
+                    RichText::new("NIMBUS")
+                        .size(26.0)
+                        .strong()
+                        .color(ACCENT_BRIGHT),
+                );
                 ui.add_space(24.0);
                 for tab in Tab::ALL {
                     let selected = app.tab == tab;
@@ -256,7 +273,10 @@ fn consoles(app: &mut App, ui: &mut Ui) {
             });
         }
         Load::Failed(e) => {
-            ui.colored_label(Color32::from_rgb(255, 120, 120), format!("Couldn't list consoles: {e}"));
+            ui.colored_label(
+                Color32::from_rgb(255, 120, 120),
+                format!("Couldn't list consoles: {e}"),
+            );
         }
         Load::Loaded(list) if list.is_empty() => {
             ui.label("No console found for this account.");
@@ -280,7 +300,12 @@ fn consoles(app: &mut App, ui: &mut Ui) {
                     let p = ui.painter();
                     p.rect_filled(rect, 14.0, if focused { BG_CARD_HOVER } else { BG_CARD });
                     if resp.has_focus() {
-                        p.rect_stroke(rect, 14.0, Stroke::new(3.0, ACCENT_BRIGHT), StrokeKind::Inside);
+                        p.rect_stroke(
+                            rect,
+                            14.0,
+                            Stroke::new(3.0, ACCENT_BRIGHT),
+                            StrokeKind::Inside,
+                        );
                     }
                     let x = rect.left() + 22.0;
                     p.text(
@@ -339,7 +364,12 @@ fn consoles(app: &mut App, ui: &mut Ui) {
     }
 }
 
-fn game_tile(app: &mut App, ui: &mut Ui, game: &super::app::CloudGame, focus: bool) -> egui::Response {
+fn game_tile(
+    app: &mut App,
+    ui: &mut Ui,
+    game: &super::app::CloudGame,
+    focus: bool,
+) -> egui::Response {
     let size = vec2(178.0, 236.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     if focus {
@@ -384,7 +414,12 @@ fn game_tile(app: &mut App, ui: &mut Ui, game: &super::app::CloudGame, focus: bo
         }
     }
     if resp.has_focus() {
-        p.rect_stroke(img_rect.expand(3.0), 14.0, Stroke::new(3.0, ACCENT_BRIGHT), StrokeKind::Outside);
+        p.rect_stroke(
+            img_rect.expand(3.0),
+            14.0,
+            Stroke::new(3.0, ACCENT_BRIGHT),
+            StrokeKind::Outside,
+        );
     }
     let resp = if game.publisher.is_empty() {
         resp
@@ -392,15 +427,27 @@ fn game_tile(app: &mut App, ui: &mut Ui, game: &super::app::CloudGame, focus: bo
         resp.on_hover_text(&game.publisher)
     };
     if !game.playable {
-        let badge = egui::Rect::from_min_size(img_rect.left_top() + vec2(8.0, 8.0), vec2(96.0, 22.0));
+        let badge =
+            egui::Rect::from_min_size(img_rect.left_top() + vec2(8.0, 8.0), vec2(96.0, 22.0));
         p.rect_filled(badge, 11.0, Color32::from_black_alpha(200));
-        p.text(badge.center(), Align2::CENTER_CENTER, "Not owned", FontId::proportional(13.0), Color32::WHITE);
+        p.text(
+            badge.center(),
+            Align2::CENTER_CENTER,
+            "Not owned",
+            FontId::proportional(13.0),
+            Color32::WHITE,
+        );
     }
-    let text_rect = egui::Rect::from_min_max(egui::pos2(rect.left(), img_rect.bottom() + 6.0), rect.max);
+    let text_rect =
+        egui::Rect::from_min_max(egui::pos2(rect.left(), img_rect.bottom() + 6.0), rect.max);
     let galley = ui.painter().layout(
         game.name.clone(),
         FontId::proportional(15.0),
-        if focused { Color32::WHITE } else { Color32::from_gray(200) },
+        if focused {
+            Color32::WHITE
+        } else {
+            Color32::from_gray(200)
+        },
         text_rect.width(),
     );
     ui.painter()
@@ -469,34 +516,36 @@ fn cloud(app: &mut App, ui: &mut Ui) {
 
     let mut start = None;
     let mut first = app.request_focus_reset;
-    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        if !recent.is_empty() {
-            ui.label(RichText::new("Jump back in").size(19.0).strong());
-            ui.add_space(4.0);
+    egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .show(ui, |ui| {
+            if !recent.is_empty() {
+                ui.label(RichText::new("Jump back in").size(19.0).strong());
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
+                    for g in &recent {
+                        if game_tile(app, ui, g, std::mem::take(&mut first)).clicked() {
+                            start = Some(g.clone());
+                        }
+                    }
+                });
+                ui.add_space(14.0);
+                ui.label(RichText::new("Library").size(19.0).strong());
+                ui.add_space(4.0);
+            }
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
-                for g in &recent {
+                for g in &games {
                     if game_tile(app, ui, g, std::mem::take(&mut first)).clicked() {
                         start = Some(g.clone());
                     }
                 }
             });
-            ui.add_space(14.0);
-            ui.label(RichText::new("Library").size(19.0).strong());
-            ui.add_space(4.0);
-        }
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(16.0, 16.0);
-            for g in &games {
-                if game_tile(app, ui, g, std::mem::take(&mut first)).clicked() {
-                    start = Some(g.clone());
-                }
+            if games.is_empty() {
+                ui.label(RichText::new("No game matches.").color(TEXT_DIM));
             }
         });
-        if games.is_empty() {
-            ui.label(RichText::new("No game matches.").color(TEXT_DIM));
-        }
-    });
     if let Some(g) = start {
         if g.playable {
             app.start_stream(StreamTarget::Cloud {
@@ -510,7 +559,12 @@ fn cloud(app: &mut App, ui: &mut Ui) {
 }
 
 /// A row of mutually-exclusive options (controller friendly).
-fn choice<T: PartialEq + Copy>(ui: &mut Ui, label: &str, value: &mut T, options: &[(T, &str)]) -> bool {
+fn choice<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    label: &str,
+    value: &mut T,
+    options: &[(T, &str)],
+) -> bool {
     choice_focus(ui, label, value, options, false)
 }
 
@@ -555,89 +609,131 @@ fn settings(app: &mut App, ui: &mut Ui) {
     let mut region_changed = false;
     let mut sign_out = false;
     let focus_reset = app.request_focus_reset;
-    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        let s = &mut app.settings;
-        section_title(ui, "Stream quality");
-        let res: Vec<(Resolution, &str)> = Resolution::ALL.iter().map(|r| (*r, r.label())).collect();
-        changed |= choice_focus(ui, "Resolution", &mut s.resolution, &res, focus_reset);
-        let codecs: Vec<(CodecPreference, &str)> =
-            CodecPreference::ALL.iter().map(|c| (*c, c.label())).collect();
-        changed |= choice(ui, "H.264 profile", &mut s.codec, &codecs);
-        changed |= choice(
-            ui,
-            "Max bitrate",
-            &mut s.max_bitrate_mbps,
-            &[(0, "Unlimited"), (40, "40 Mbps"), (25, "25 Mbps"), (15, "15 Mbps"), (8, "8 Mbps")],
-        );
-        let regions: Vec<String> = match &app.cloud {
-            Load::Loaded(lib) if lib.regions.len() > 1 => lib.regions.clone(),
-            _ => Vec::new(),
-        };
-        if !regions.is_empty() {
+    egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .show(ui, |ui| {
             let s = &mut app.settings;
-            let mut opts: Vec<(Option<&str>, &str)> = vec![(None, "Automatic")];
-            opts.extend(regions.iter().map(|r| (Some(r.as_str()), r.as_str())));
-            let mut current = s.xcloud_region.as_deref();
-            if choice(ui, "Cloud region", &mut current, &opts) {
-                s.xcloud_region = current.map(str::to_owned);
-                changed = true;
-                region_changed = true;
+            section_title(ui, "Stream quality");
+            let res: Vec<(Resolution, &str)> =
+                Resolution::ALL.iter().map(|r| (*r, r.label())).collect();
+            changed |= choice_focus(ui, "Resolution", &mut s.resolution, &res, focus_reset);
+            let codecs: Vec<(CodecPreference, &str)> = CodecPreference::ALL
+                .iter()
+                .map(|c| (*c, c.label()))
+                .collect();
+            changed |= choice(ui, "H.264 profile", &mut s.codec, &codecs);
+            changed |= choice(
+                ui,
+                "Max bitrate",
+                &mut s.max_bitrate_mbps,
+                &[
+                    (0, "Unlimited"),
+                    (40, "40 Mbps"),
+                    (25, "25 Mbps"),
+                    (15, "15 Mbps"),
+                    (8, "8 Mbps"),
+                ],
+            );
+            let regions: Vec<String> = match &app.cloud {
+                Load::Loaded(lib) if lib.regions.len() > 1 => lib.regions.clone(),
+                _ => Vec::new(),
+            };
+            if !regions.is_empty() {
+                let s = &mut app.settings;
+                let mut opts: Vec<(Option<&str>, &str)> = vec![(None, "Automatic")];
+                opts.extend(regions.iter().map(|r| (Some(r.as_str()), r.as_str())));
+                let mut current = s.xcloud_region.as_deref();
+                if choice(ui, "Cloud region", &mut current, &opts) {
+                    s.xcloud_region = current.map(str::to_owned);
+                    changed = true;
+                    region_changed = true;
+                }
             }
-        }
-        let s = &mut app.settings;
-        ui.add_space(14.0);
-        section_title(ui, "Video");
-        let decoders: Vec<(DecoderPref, &str)> = DecoderPref::ALL.iter().map(|d| (*d, d.label())).collect();
-        changed |= choice(ui, "Decoder", &mut s.decoder, &decoders);
-        let presents: Vec<(PresentPref, &str)> = PresentPref::ALL.iter().map(|p| (*p, p.label())).collect();
-        changed |= choice(ui, "Presentation", &mut s.present, &presents);
-        let mut sharp = (s.sharpness * 100.0).round() as u32;
-        if choice(
-            ui,
-            "Sharpening",
-            &mut sharp,
-            &[(0, "Off"), (20, "Low"), (35, "Medium"), (60, "High"), (90, "Max")],
-        ) {
-            s.sharpness = sharp as f32 / 100.0;
-            changed = true;
-        }
-        changed |= choice(ui, "Fullscreen while playing", &mut s.fullscreen_on_stream, &[(true, "On"), (false, "Off")]);
-        changed |= choice(ui, "Statistics overlay", &mut s.show_stats, &[(true, "On"), (false, "Off")]);
-        ui.add_space(14.0);
-        section_title(ui, "Controls & audio");
-        let mut dz = (s.deadzone * 100.0).round() as u32;
-        if choice(ui, "Stick deadzone", &mut dz, &[(0, "0%"), (5, "5%"), (8, "8%"), (12, "12%"), (18, "18%")]) {
-            s.deadzone = dz as f32 / 100.0;
-            changed = true;
-        }
-        changed |= choice(ui, "Vibration", &mut s.vibration, &[(true, "On"), (false, "Off")]);
-        changed |= choice(
-            ui,
-            "Audio buffer",
-            &mut s.audio_buffer_ms,
-            &[(20, "20 ms"), (40, "40 ms"), (60, "60 ms"), (100, "100 ms")],
-        );
-        ui.add_space(14.0);
-        section_title(ui, "Account");
-        if app.mock.is_some() {
-            ui.label("Mock mode (no account).");
-        } else if ui.add(egui::Button::new("Sign out").min_size(vec2(160.0, 38.0))).clicked() {
-            sign_out = true;
-        }
-        ui.add_space(14.0);
-        ui.label(
-            RichText::new(format!(
-                "Nimbus {} · GPU: {}",
-                env!("CARGO_PKG_VERSION"),
-                app.renderer_info
-            ))
-            .color(TEXT_DIM),
-        );
-        ui.label(
-            RichText::new("Changes to quality settings apply to the next stream.")
+            let s = &mut app.settings;
+            ui.add_space(14.0);
+            section_title(ui, "Video");
+            let decoders: Vec<(DecoderPref, &str)> =
+                DecoderPref::ALL.iter().map(|d| (*d, d.label())).collect();
+            changed |= choice(ui, "Decoder", &mut s.decoder, &decoders);
+            let presents: Vec<(PresentPref, &str)> =
+                PresentPref::ALL.iter().map(|p| (*p, p.label())).collect();
+            changed |= choice(ui, "Presentation", &mut s.present, &presents);
+            let mut sharp = (s.sharpness * 100.0).round() as u32;
+            if choice(
+                ui,
+                "Sharpening",
+                &mut sharp,
+                &[
+                    (0, "Off"),
+                    (20, "Low"),
+                    (35, "Medium"),
+                    (60, "High"),
+                    (90, "Max"),
+                ],
+            ) {
+                s.sharpness = sharp as f32 / 100.0;
+                changed = true;
+            }
+            changed |= choice(
+                ui,
+                "Fullscreen while playing",
+                &mut s.fullscreen_on_stream,
+                &[(true, "On"), (false, "Off")],
+            );
+            changed |= choice(
+                ui,
+                "Statistics overlay",
+                &mut s.show_stats,
+                &[(true, "On"), (false, "Off")],
+            );
+            ui.add_space(14.0);
+            section_title(ui, "Controls & audio");
+            let mut dz = (s.deadzone * 100.0).round() as u32;
+            if choice(
+                ui,
+                "Stick deadzone",
+                &mut dz,
+                &[(0, "0%"), (5, "5%"), (8, "8%"), (12, "12%"), (18, "18%")],
+            ) {
+                s.deadzone = dz as f32 / 100.0;
+                changed = true;
+            }
+            changed |= choice(
+                ui,
+                "Vibration",
+                &mut s.vibration,
+                &[(true, "On"), (false, "Off")],
+            );
+            changed |= choice(
+                ui,
+                "Audio buffer",
+                &mut s.audio_buffer_ms,
+                &[(20, "20 ms"), (40, "40 ms"), (60, "60 ms"), (100, "100 ms")],
+            );
+            ui.add_space(14.0);
+            section_title(ui, "Account");
+            if app.mock.is_some() {
+                ui.label("Mock mode (no account).");
+            } else if ui
+                .add(egui::Button::new("Sign out").min_size(vec2(160.0, 38.0)))
+                .clicked()
+            {
+                sign_out = true;
+            }
+            ui.add_space(14.0);
+            ui.label(
+                RichText::new(format!(
+                    "Nimbus {} · GPU: {}",
+                    env!("CARGO_PKG_VERSION"),
+                    app.renderer_info
+                ))
                 .color(TEXT_DIM),
-        );
-    });
+            );
+            ui.label(
+                RichText::new("Changes to quality settings apply to the next stream.")
+                    .color(TEXT_DIM),
+            );
+        });
     if changed {
         app.show_stats = app.settings.show_stats;
         app.save_settings();
@@ -654,7 +750,9 @@ fn settings(app: &mut App, ui: &mut Ui) {
 // ----------------------------------------------------------- connecting
 
 fn connecting(app: &mut App, ui: &mut Ui) {
-    let Screen::Connecting(c) = &app.screen else { return };
+    let Screen::Connecting(c) = &app.screen else {
+        return;
+    };
     let mut cancel = false;
     let focus_reset = app.request_focus_reset;
     ui.vertical_centered(|ui| {
@@ -666,14 +764,10 @@ fn connecting(app: &mut App, ui: &mut Ui) {
         ui.label(RichText::new(&c.status).size(20.0));
         if let Some(w) = c.wait_seconds.filter(|w| *w > 0) {
             ui.label(
-                RichText::new(format!("Estimated wait: {} min", (w + 59) / 60))
-                    .color(TEXT_DIM),
+                RichText::new(format!("Estimated wait: {} min", (w + 59) / 60)).color(TEXT_DIM),
             );
         }
-        ui.label(
-            RichText::new(format!("{} s", c.started.elapsed().as_secs()))
-                .color(TEXT_DIM),
-        );
+        ui.label(RichText::new(format!("{} s", c.started.elapsed().as_secs())).color(TEXT_DIM));
         ui.add_space(24.0);
         let b = ui.add(egui::Button::new("Cancel").min_size(vec2(200.0, 44.0)));
         if focus_reset {
@@ -703,7 +797,11 @@ fn streaming(app: &mut App, ui: &mut Ui) {
                 ui.vertical_centered(|ui| {
                     ui.label(RichText::new(&s.name).size(30.0).strong());
                     ui.add(egui::Spinner::new().size(36.0).color(ACCENT_BRIGHT));
-                    ui.label(if s.ready { "Waiting for video…" } else { "Connecting…" });
+                    ui.label(if s.ready {
+                        "Waiting for video…"
+                    } else {
+                        "Connecting…"
+                    });
                 });
             });
         ctx.request_repaint_after(Duration::from_millis(100));
@@ -720,7 +818,9 @@ fn streaming(app: &mut App, ui: &mut Ui) {
                     .corner_radius(20.0)
                     .inner_margin(Margin::symmetric(18, 10))
                     .show(ui, |ui| {
-                        ui.label("View + Menu (or Esc) opens the menu  ·  F1 stats  ·  F11 fullscreen");
+                        ui.label(
+                            "View + Menu (or Esc) opens the menu  ·  F1 stats  ·  F11 fullscreen",
+                        );
                     });
             });
         ctx.request_repaint_after(Duration::from_millis(500));
@@ -734,8 +834,11 @@ fn streaming(app: &mut App, ui: &mut Ui) {
     let mut dialog_answer = None;
     let s = app.stream.as_ref().unwrap();
     if let Some(d) = &s.dialog {
-        ctx.layer_painter(egui::LayerId::background())
-            .rect_filled(screen, 0.0, Color32::from_black_alpha(140));
+        ctx.layer_painter(egui::LayerId::background()).rect_filled(
+            screen,
+            0.0,
+            Color32::from_black_alpha(140),
+        );
         egui::Area::new(egui::Id::unique("dialog"))
             .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
             .show(&ctx, |ui| {
@@ -763,8 +866,11 @@ fn streaming(app: &mut App, ui: &mut Ui) {
                     });
             });
     } else if s.menu_open {
-        ctx.layer_painter(egui::LayerId::background())
-            .rect_filled(screen, 0.0, Color32::from_black_alpha(150));
+        ctx.layer_painter(egui::LayerId::background()).rect_filled(
+            screen,
+            0.0,
+            Color32::from_black_alpha(150),
+        );
         egui::Area::new(egui::Id::unique("menu"))
             .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
             .show(&ctx, |ui| {
@@ -789,7 +895,16 @@ fn streaming(app: &mut App, ui: &mut Ui) {
                             if big_button(ui, "Xbox button").clicked() {
                                 action = Some("nexus");
                             }
-                            if big_button(ui, if app.show_stats { "Hide statistics" } else { "Show statistics" }).clicked() {
+                            if big_button(
+                                ui,
+                                if app.show_stats {
+                                    "Hide statistics"
+                                } else {
+                                    "Show statistics"
+                                },
+                            )
+                            .clicked()
+                            {
                                 action = Some("stats");
                             }
                             if big_button(ui, "Toggle fullscreen").clicked() {
@@ -800,10 +915,12 @@ fn streaming(app: &mut App, ui: &mut Ui) {
                             }
                             if ui
                                 .add(
-                                    egui::Button::new(RichText::new("Disconnect").size(20.0).strong())
-                                        .fill(Color32::from_rgb(150, 40, 40))
-                                        .min_size(vec2(260.0, 52.0))
-                                        .corner_radius(10.0),
+                                    egui::Button::new(
+                                        RichText::new("Disconnect").size(20.0).strong(),
+                                    )
+                                    .fill(Color32::from_rgb(150, 40, 40))
+                                    .min_size(vec2(260.0, 52.0))
+                                    .corner_radius(10.0),
                                 )
                                 .clicked()
                             {
@@ -842,7 +959,17 @@ fn stats_overlay(app: &App, ctx: &egui::Context) {
     let d = &s.decode;
     let n = &s.net;
     let mut lines = vec![
-        format!("{}x{} @ {:.0} fps   {}", d.width, d.height, s.fps, if d.backend.is_empty() { "…" } else { d.backend }),
+        format!(
+            "{}x{} @ {:.0} fps   {}",
+            d.width,
+            d.height,
+            s.fps,
+            if d.backend.is_empty() {
+                "…"
+            } else {
+                d.backend
+            }
+        ),
         format!(
             "latency {:>5.1} ms = net {:.1} + decode {:.1} + render {:.1}",
             s.latency_ms, s.queue_ms, d.decode_ms_avg, s.render_ms
@@ -854,7 +981,9 @@ fn stats_overlay(app: &App, ctx: &egui::Context) {
         ),
         format!(
             "rtt     {}   jitter {:.1} ms",
-            n.rtt_ms.map(|r| format!("{r:>5.1} ms")).unwrap_or_else(|| "    -".into()),
+            n.rtt_ms
+                .map(|r| format!("{r:>5.1} ms"))
+                .unwrap_or_else(|| "    -".into()),
             n.jitter_ms
         ),
         format!(

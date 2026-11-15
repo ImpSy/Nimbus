@@ -64,53 +64,56 @@ overlay (F1) shows the live breakdown (network/queue + decode + render).
   `-`/`=`=triggers, M=Menu, V=View, N=Nexus).
 * Hotkeys: **F1** stats, **F11** fullscreen, **Esc/F10** menu.
 
-## Building
+## Getting started
 
-The Rust toolchain is pinned with [mise](https://mise.jdx.dev) (`mise.toml`).
-
-### macOS
-
-```sh
-brew install ffmpeg cmake          # FFmpeg for development builds
-mise install                       # Rust 1.100
-cargo run --release -p nimbus
-```
-
-SDL3 is compiled from source and linked statically (needs `cmake`).
-
-Self-contained app bundle (FFmpeg built from source and linked statically):
+Everything is managed by [mise](https://mise.jdx.dev): the Rust toolchain,
+CMake, the test-media tools and a minimal **static FFmpeg** built from source
+(no Homebrew, no system FFmpeg). On a fresh clone:
 
 ```sh
-packaging/macos/bundle.sh          # → target/Nimbus.app
+mise trust          # allow this repo's mise.toml
+mise install        # Rust, cmake, … then builds FFmpeg into .deps/ (~1 min, once)
+mise run app        # build & run Nimbus
 ```
 
-### Linux / Steam Deck
+The only prerequisite is a C toolchain: Xcode Command Line Tools on macOS
+(`xcode-select --install`), `build-essential` plus the `-dev` packages listed
+in `packaging/linux/Dockerfile` on Linux. SDL3 and FFmpeg are compiled from
+source and linked statically, so the resulting binary is self-contained.
 
-Reproducible x86_64 build in Docker (Ubuntu 22.04 / glibc 2.35, static FFmpeg
-with VA-API, static SDL3):
+`mise tasks` lists everything:
 
-```sh
-docker build --platform linux/amd64 -t nimbus-build packaging/linux
-docker run --rm --platform linux/amd64 -v "$PWD":/src \
-  -v nimbus-cargo:/root/.cargo/registry -v nimbus-target:/src/target nimbus-build
-```
+| Task | What it does |
+|---|---|
+| `mise run app` / `dev` | run Nimbus (release / debug) |
+| `mise run build` | release build (`target/release/nimbus`) |
+| `mise run test` / `lint` / `fmt` | tests, clippy + rustfmt check, format |
+| `mise run bench` | hardware vs software decoder benchmark |
+| `mise run mock` | run Nimbus against the local mock server (no account needed) |
+| `mise run mock:server` / `mock:media` | just the mock server / regenerate its test media |
+| `mise run bundle:macos` | self-contained `target/Nimbus.app` |
+| `mise run deck:build` | Steam Deck (x86_64 Linux) release in Docker → `target/deck/` |
+| `mise run deck:e2e` | headless Linux end-to-end test in Docker (Xvfb + lavapipe + mock server) |
+| `mise run ffmpeg` / `setup` | (re)build the static FFmpeg; runs automatically after `mise install` |
 
-This produces `target/release/nimbus` and an AppDir/tarball (or AppImage if
-`appimagetool` is installed). The binary only depends on glibc, libva and
+Plain `cargo …` commands work too inside a mise-activated shell (mise exports
+`FFMPEG_DIR`). To link a system FFmpeg (≥ 5.1) instead, build with
+`cargo build -p nimbus --no-default-features`.
+
+### Steam Deck
+
+`mise run deck:build` (needs Docker, e.g. OrbStack / Docker Desktop) builds in
+an Ubuntu 22.04 container (glibc 2.35), using the same mise toolchain, and
+writes `target/deck/nimbus` plus a tarball (and an AppImage when
+`appimagetool` is available). The binary only depends on glibc, libva and
 libdrm (all present on SteamOS); X11/Wayland/PipeWire are loaded at runtime by
-SDL. `packaging/linux/e2e.sh` runs the whole pipeline headless in the same
-container (Xvfb + Mesa lavapipe + mock server). On a Steam Deck:
+SDL. Then:
 
-1. Desktop Mode → copy the `nimbus` binary (or AppImage) to e.g. `~/Applications`.
+1. Desktop Mode → copy `target/deck/nimbus` to e.g. `~/Applications`.
 2. Steam → *Add a Non-Steam Game* → pick it.
-3. In Gaming Mode, set the controller layout to **Gamepad** (the default for
-   non-Steam games is fine). The View + Menu buttons open Nimbus' menu; the
-   Steam and "…" buttons stay with Steam.
+3. In Gaming Mode use the **Gamepad** controller layout. View + Menu opens
+   Nimbus' menu; the Steam and "…" buttons stay with Steam.
 4. Sign in by scanning the QR code with your phone.
-
-Native build on any distro: install FFmpeg (≥ 5.1) development packages,
-`libva-dev`, `cmake`, `clang`, the X11/Wayland/PipeWire headers, then
-`cargo build --release -p nimbus` (or `--features static-ffmpeg-linux`).
 
 ## Testing without a console: the mock server
 
@@ -121,9 +124,8 @@ handshake, logs controller input, rumbles when you press **A** and shows a
 console dialog when you press **Y**.
 
 ```sh
-scripts/mock-media.sh                                       # generate test media (ffmpeg)
-cargo run -p xcloud --example mock_server -- target/mock-media 8085
-NIMBUS_MOCK=http://127.0.0.1:8085 cargo run -p nimbus       # no sign-in needed
+mise run mock                                   # media + server + app, no sign-in
+NIMBUS_AUTOSTREAM=home mise run mock            # …and start streaming right away
 ```
 
 Debug environment variables:
@@ -165,16 +167,17 @@ crates/xcloud   protocol library (no UI): auth, GSSV API, catalog, WebRTC sessio
                 channel protocols, ICE/Teredo helpers, mock server example
 crates/media    FFmpeg-based H.264 (hardware accelerated) and Opus decoders
 crates/nimbus   the app: SDL3 window/controllers/audio, wgpu renderer, egui UI
-packaging/      macOS .app bundle script, Linux/Steam Deck Docker build
+packaging/      macOS .app bundle script, Linux/Steam Deck Docker build (Dockerfile,
+                build.sh, e2e.sh, docker-run.sh)
 ```
 
 Threads: **main** (SDL events, controllers → network thread), **ui** (egui +
 wgpu, app state), **xcloud-net** (WebRTC + data channels, woken instantly via
 `mio::Waker`), **video-decode**, **audio**, and two tokio workers for HTTP.
 
-```sh
-cargo test --workspace            # protocol, SDP negotiation (real xCloud answer), decoders
-cargo test -p nimbus-media --release bench -- --ignored --nocapture   # decoder benchmark
+```
+mise.toml       toolchains, FFMPEG_DIR, tasks
+scripts/        build-ffmpeg.sh (static FFmpeg), mock-media.sh, mock.sh
 ```
 
 ## Status and limitations

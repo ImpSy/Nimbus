@@ -116,7 +116,14 @@ impl Account {
     }
 
     async fn user_token(&self) -> Result<XblToken> {
-        if let Some(t) = self.cache.lock().await.user_token.clone().filter(XblToken::is_fresh) {
+        if let Some(t) = self
+            .cache
+            .lock()
+            .await
+            .user_token
+            .clone()
+            .filter(XblToken::is_fresh)
+        {
             return Ok(t);
         }
         let access = self.msa_access_token().await?;
@@ -126,7 +133,14 @@ impl Account {
     }
 
     pub async fn gssv_xsts(&self) -> Result<XblToken> {
-        if let Some(t) = self.cache.lock().await.gssv_xsts.clone().filter(XblToken::is_fresh) {
+        if let Some(t) = self
+            .cache
+            .lock()
+            .await
+            .gssv_xsts
+            .clone()
+            .filter(XblToken::is_fresh)
+        {
             return Ok(t);
         }
         let user = self.user_token().await?;
@@ -137,7 +151,14 @@ impl Account {
 
     /// XSTS token for regular Xbox Live web APIs (profile, achievements...).
     pub async fn web_xsts(&self) -> Result<XblToken> {
-        if let Some(t) = self.cache.lock().await.web_xsts.clone().filter(XblToken::is_fresh) {
+        if let Some(t) = self
+            .cache
+            .lock()
+            .await
+            .web_xsts
+            .clone()
+            .filter(XblToken::is_fresh)
+        {
             return Ok(t);
         }
         let user = self.user_token().await?;
@@ -156,7 +177,14 @@ impl Account {
 
     /// Remote-play (xHome) GSSV token.
     pub async fn xhome_token(&self) -> Result<StreamToken> {
-        if let Some(t) = self.cache.lock().await.xhome.clone().filter(StreamToken::is_fresh) {
+        if let Some(t) = self
+            .cache
+            .lock()
+            .await
+            .xhome
+            .clone()
+            .filter(StreamToken::is_fresh)
+        {
             return Ok(t);
         }
         let xsts = self.gssv_xsts().await?;
@@ -186,7 +214,11 @@ impl Account {
                     return Ok(Some((offering, t)));
                 }
                 Err(Error::Http { status, .. }) if (400..500).contains(&status) => {
-                    tracing::info!(offering = offering.id(), status, "xCloud offering unavailable");
+                    tracing::info!(
+                        offering = offering.id(),
+                        status,
+                        "xCloud offering unavailable"
+                    );
                 }
                 Err(e) => return Err(e),
             }

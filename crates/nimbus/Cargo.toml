@@ -7,14 +7,14 @@ license.workspace = true
 default-run = "nimbus"
 
 [features]
-default = []
-# Self-contained release bundles: statically link FFmpeg.
-static-ffmpeg-macos = ["nimbus-media/static-ffmpeg-macos"]
-static-ffmpeg-linux = ["nimbus-media/static-ffmpeg-linux"]
+default = ["static-ffmpeg"]
+# Statically link the FFmpeg built by `mise run ffmpeg` (self-contained binary).
+# `--no-default-features` links a system FFmpeg instead.
+static-ffmpeg = ["nimbus-media/static"]
 
 [dependencies]
 xcloud = { path = "../xcloud" }
-nimbus-media = { path = "../media" }
+nimbus-media = { path = "../media", default-features = false }
 
 anyhow.workspace = true
 serde.workspace = true

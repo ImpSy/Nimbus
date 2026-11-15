@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# Build a self-contained Nimbus.app (FFmpeg + SDL3 statically linked).
-#   packaging/macos/bundle.sh            # static FFmpeg (slow first build)
-#   NIMBUS_SYSTEM_FFMPEG=1 packaging/macos/bundle.sh   # link Homebrew FFmpeg (dev only)
+# Build a self-contained target/Nimbus.app (FFmpeg + SDL3 linked statically).
+# Run through mise so FFMPEG_DIR is set:  mise run bundle:macos
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+: "${FFMPEG_DIR:?run this through mise: mise run bundle:macos}"
 
-FEATURES="--features static-ffmpeg-macos"
-if [ "${NIMBUS_SYSTEM_FFMPEG:-}" = "1" ]; then FEATURES=""; fi
-cargo build --release -p nimbus $FEATURES
+cargo build --release -p nimbus
 
 APP=target/Nimbus.app
 rm -rf "$APP"

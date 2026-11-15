@@ -204,7 +204,12 @@ impl App {
             .build()
             .expect("http client");
         let (backend_tx, backend_rx) = unbounded();
-        let images = Images::new(rt.handle().clone(), http.clone(), paths.cache_dir.join("images"), wake);
+        let images = Images::new(
+            rt.handle().clone(),
+            http.clone(),
+            paths.cache_dir.join("images"),
+            wake,
+        );
         let show_stats = settings.show_stats;
         let mut app = Self {
             rt,
@@ -351,12 +356,26 @@ impl App {
         let settings = self.settings.clone();
         if let Some(base) = self.mock.clone() {
             self.spawn(async move {
-                let api = GssvApi::new(http, &base, "mock", StreamKind::Home, settings.resolution, &settings.locale);
-                Backend::Consoles(api.consoles().await.map(|c| (base, c)).map_err(|e| e.to_string()))
+                let api = GssvApi::new(
+                    http,
+                    &base,
+                    "mock",
+                    StreamKind::Home,
+                    settings.resolution,
+                    &settings.locale,
+                );
+                Backend::Consoles(
+                    api.consoles()
+                        .await
+                        .map(|c| (base, c))
+                        .map_err(|e| e.to_string()),
+                )
             });
             return;
         }
-        let Some(acc) = self.account.clone() else { return };
+        let Some(acc) = self.account.clone() else {
+            return;
+        };
         self.spawn(async move {
             let result = async {
                 let token = acc.xhome_token().await?;
@@ -401,7 +420,14 @@ impl App {
         let settings = self.settings.clone();
         if let Some(base) = self.mock.clone() {
             self.spawn(async move {
-                let api = GssvApi::new(http, &base, "mock", StreamKind::Cloud, settings.resolution, &settings.locale);
+                let api = GssvApi::new(
+                    http,
+                    &base,
+                    "mock",
+                    StreamKind::Cloud,
+                    settings.resolution,
+                    &settings.locale,
+                );
                 let r = api.titles().await.map(|titles| {
                     Some(CloudLibrary {
                         offering: Offering::XCloud,
@@ -425,7 +451,9 @@ impl App {
             });
             return;
         }
-        let Some(acc) = self.account.clone() else { return };
+        let Some(acc) = self.account.clone() else {
+            return;
+        };
         self.spawn(async move {
             let result = async {
                 let Some((offering, token)) = acc.xcloud_token().await? else {
@@ -434,7 +462,13 @@ impl App {
                 let region = settings
                     .xcloud_region
                     .as_ref()
-                    .and_then(|name| token.offering_settings.regions.iter().find(|r| &r.name == name))
+                    .and_then(|name| {
+                        token
+                            .offering_settings
+                            .regions
+                            .iter()
+                            .find(|r| &r.name == name)
+                    })
                     .or_else(|| token.default_region())
                     .cloned()
                     .ok_or_else(|| xcloud::Error::Session("no xCloud region".into()))?;
@@ -456,17 +490,13 @@ impl App {
                     .iter()
                     .filter_map(|t| t.details.product_id.clone())
                     .collect();
-                let products = xcloud::catalog::products(
-                    &http,
-                    &token.market,
-                    &settings.locale,
-                    &product_ids,
-                )
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::warn!("catalog lookup failed: {e}");
-                    Default::default()
-                });
+                let products =
+                    xcloud::catalog::products(&http, &token.market, &settings.locale, &product_ids)
+                        .await
+                        .unwrap_or_else(|e| {
+                            tracing::warn!("catalog lookup failed: {e}");
+                            Default::default()
+                        });
                 let mut games: Vec<CloudGame> = titles
                     .into_iter()
                     .map(|t| {
@@ -565,7 +595,14 @@ impl App {
                     StreamTarget::Cloud { title_id, .. } => (StreamKind::Cloud, title_id.clone()),
                 };
                 let api = if let Some(base) = mock {
-                    GssvApi::new(http, &base, "mock", kind, settings.resolution, &settings.locale)
+                    GssvApi::new(
+                        http,
+                        &base,
+                        "mock",
+                        kind,
+                        settings.resolution,
+                        &settings.locale,
+                    )
                 } else {
                     let acc = account.clone().ok_or(xcloud::Error::NotSignedIn)?;
                     match kind {
@@ -573,18 +610,35 @@ impl App {
                             let t = acc.xhome_token().await?;
                             let base = home_base
                                 .or_else(|| t.default_region().map(|r| r.base_uri.clone()))
-                                .ok_or_else(|| xcloud::Error::Session("no remote play region".into()))?;
-                            GssvApi::new(http, &base, &t.gs_token, kind, settings.resolution, &settings.locale)
+                                .ok_or_else(|| {
+                                    xcloud::Error::Session("no remote play region".into())
+                                })?;
+                            GssvApi::new(
+                                http,
+                                &base,
+                                &t.gs_token,
+                                kind,
+                                settings.resolution,
+                                &settings.locale,
+                            )
                         }
                         StreamKind::Cloud => {
-                            let (_, t) = acc
-                                .xcloud_token()
-                                .await?
-                                .ok_or_else(|| xcloud::Error::Session("Cloud gaming is not available for this account".into()))?;
+                            let (_, t) = acc.xcloud_token().await?.ok_or_else(|| {
+                                xcloud::Error::Session(
+                                    "Cloud gaming is not available for this account".into(),
+                                )
+                            })?;
                             let base = cloud_base
                                 .or_else(|| t.default_region().map(|r| r.base_uri.clone()))
                                 .ok_or_else(|| xcloud::Error::Session("no xCloud region".into()))?;
-                            GssvApi::new(http, &base, &t.gs_token, kind, settings.resolution, &settings.locale)
+                            GssvApi::new(
+                                http,
+                                &base,
+                                &t.gs_token,
+                                kind,
+                                settings.resolution,
+                                &settings.locale,
+                            )
                         }
                     }
                 };
@@ -601,7 +655,10 @@ impl App {
                 .await
             }
             .await;
-            let _ = tx.send(Backend::StreamStarted(id, result.map_err(|e| e.to_string())));
+            let _ = tx.send(Backend::StreamStarted(
+                id,
+                result.map_err(|e| e.to_string()),
+            ));
             let _ = waker.try_send(());
         });
 
@@ -639,7 +696,9 @@ impl App {
 
     /// Stop the current stream (user action or disconnect).
     pub fn end_stream(&mut self, reason: Option<String>) {
-        let Some(mut s) = self.stream.take() else { return };
+        let Some(mut s) = self.stream.take() else {
+            return;
+        };
         *self.shared.stream.lock() = None;
         self.shared
             .menu_open
@@ -684,7 +743,9 @@ impl App {
 
     /// Synchronously stop any stream (app exit).
     pub fn shutdown(&mut self) {
-        let Some(mut s) = self.stream.take() else { return };
+        let Some(mut s) = self.stream.take() else {
+            return;
+        };
         *self.shared.stream.lock() = None;
         if let Some(task) = s.task.take() {
             task.abort();
@@ -714,7 +775,9 @@ impl App {
 
     /// Called after a picture has been presented.
     pub fn on_presented(&mut self, pic: &DecodedPicture, presented: Instant) {
-        let Some(s) = self.stream.as_mut() else { return };
+        let Some(s) = self.stream.as_mut() else {
+            return;
+        };
         if s.first_frame.is_none() {
             s.first_frame = Some(presented);
             let _ = self.main_tx.send(MainMsg::ShowCursor(false));
@@ -766,16 +829,19 @@ impl App {
                     result: index as u32,
                 });
             }
-            self.shared.menu_open.store(s.menu_open, std::sync::atomic::Ordering::Relaxed);
+            self.shared
+                .menu_open
+                .store(s.menu_open, std::sync::atomic::Ordering::Relaxed);
         }
     }
 
     pub fn save_settings(&mut self) {
         self.settings.save(&self.paths.settings());
         self.shared.set_deadzone(self.settings.deadzone);
-        self.shared
-            .vibration
-            .store(self.settings.vibration, std::sync::atomic::Ordering::Relaxed);
+        self.shared.vibration.store(
+            self.settings.vibration,
+            std::sync::atomic::Ordering::Relaxed,
+        );
     }
 
     // ------------------------------------------------------------ updates
@@ -930,7 +996,9 @@ impl App {
 
     fn poll_stream(&mut self) {
         let mut disconnect = None;
-        let Some(s) = self.stream.as_mut() else { return };
+        let Some(s) = self.stream.as_mut() else {
+            return;
+        };
         if let Some(v) = &s.video {
             s.decode = v.stats.lock().clone();
         }
@@ -939,7 +1007,9 @@ impl App {
                 StreamEvent::Connected => tracing::info!("transport connected"),
                 StreamEvent::Ready => s.ready = true,
                 StreamEvent::Disconnected(reason) => disconnect = Some(reason),
-                StreamEvent::VideoSize { width, height } => s.server_video_size = Some((width, height)),
+                StreamEvent::VideoSize { width, height } => {
+                    s.server_video_size = Some((width, height))
+                }
                 StreamEvent::Rumble(v) => {
                     tracing::debug!(?v, "rumble");
                     if self.settings.vibration {
@@ -948,7 +1018,9 @@ impl App {
                 }
                 StreamEvent::Dialog(d) => {
                     s.dialog = Some(d);
-                    self.shared.menu_open.store(true, std::sync::atomic::Ordering::Relaxed);
+                    self.shared
+                        .menu_open
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
                     self.request_focus_reset = true;
                 }
                 StreamEvent::TitleInfo(v) => {

@@ -47,9 +47,24 @@ fn decode_clip(pref: HwPreference) {
     let Some(path) = make_clip(
         "main_1080p.h264",
         &[
-            "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=60", "-t", "1",
-            "-c:v", "libx264", "-profile:v", "main", "-tune", "zerolatency",
-            "-x264-params", "aud=1:keyint=30:bframes=0", "-pix_fmt", "yuv420p", "-f", "h264",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=1920x1080:rate=60",
+            "-t",
+            "1",
+            "-c:v",
+            "libx264",
+            "-profile:v",
+            "main",
+            "-tune",
+            "zerolatency",
+            "-x264-params",
+            "aud=1:keyint=30:bframes=0",
+            "-pix_fmt",
+            "yuv420p",
+            "-f",
+            "h264",
         ],
     ) else {
         eprintln!("ffmpeg CLI not available, skipping");
@@ -93,7 +108,18 @@ fn decode_software() {
 fn opus_decodes() {
     let Some(path) = make_clip(
         "tone.opus",
-        &["-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-ac", "2", "-c:a", "libopus", "-f", "ogg"],
+        &[
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=1",
+            "-ac",
+            "2",
+            "-c:a",
+            "libopus",
+            "-f",
+            "ogg",
+        ],
     ) else {
         return;
     };
@@ -133,10 +159,32 @@ fn bench_decoders() {
     let Some(path) = make_clip(
         "bench_1080p_20mbps.h264",
         &[
-            "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=60,noise=alls=12:allf=t", "-t", "4",
-            "-c:v", "libx264", "-profile:v", "main", "-preset", "veryfast", "-tune", "zerolatency",
-            "-b:v", "20M", "-maxrate", "20M", "-bufsize", "2M",
-            "-x264-params", "aud=1:keyint=120:bframes=0", "-pix_fmt", "yuv420p", "-f", "h264",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=1920x1080:rate=60,noise=alls=12:allf=t",
+            "-t",
+            "4",
+            "-c:v",
+            "libx264",
+            "-profile:v",
+            "main",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-b:v",
+            "20M",
+            "-maxrate",
+            "20M",
+            "-bufsize",
+            "2M",
+            "-x264-params",
+            "aud=1:keyint=120:bframes=0",
+            "-pix_fmt",
+            "yuv420p",
+            "-f",
+            "h264",
         ],
     ) else {
         return;

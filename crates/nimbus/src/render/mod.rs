@@ -277,7 +277,11 @@ impl Renderer {
         self.screenshot = Some(path);
     }
 
-    fn capture(&self, encoder: &mut wgpu::CommandEncoder, texture: &wgpu::Texture) -> (wgpu::Buffer, u32) {
+    fn capture(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        texture: &wgpu::Texture,
+    ) -> (wgpu::Buffer, u32) {
         let (w, h) = (self.config.width, self.config.height);
         let bpr = (w * 4).div_ceil(256) * 256;
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -363,7 +367,8 @@ impl Renderer {
     pub fn set_present(&mut self, pref: PresentPref) {
         let mode = pick_present_mode(pref, &self.present_modes);
         let latency = frame_latency(pref);
-        if mode != self.config.present_mode || latency != self.config.desired_maximum_frame_latency {
+        if mode != self.config.present_mode || latency != self.config.desired_maximum_frame_latency
+        {
             self.config.present_mode = mode;
             self.config.desired_maximum_frame_latency = latency;
             self.surface.configure(&self.device, &self.config);
@@ -408,13 +413,38 @@ impl Renderer {
         };
         let planes: Vec<wgpu::Texture> = match frame.layout {
             PixelLayout::Nv12 => vec![
-                make(frame.planes[0].width, frame.planes[0].height, wgpu::TextureFormat::R8Unorm, "Y"),
-                make(frame.planes[1].width, frame.planes[1].height, wgpu::TextureFormat::Rg8Unorm, "UV"),
+                make(
+                    frame.planes[0].width,
+                    frame.planes[0].height,
+                    wgpu::TextureFormat::R8Unorm,
+                    "Y",
+                ),
+                make(
+                    frame.planes[1].width,
+                    frame.planes[1].height,
+                    wgpu::TextureFormat::Rg8Unorm,
+                    "UV",
+                ),
             ],
             PixelLayout::Yuv420p => vec![
-                make(frame.planes[0].width, frame.planes[0].height, wgpu::TextureFormat::R8Unorm, "Y"),
-                make(frame.planes[1].width, frame.planes[1].height, wgpu::TextureFormat::R8Unorm, "U"),
-                make(frame.planes[2].width, frame.planes[2].height, wgpu::TextureFormat::R8Unorm, "V"),
+                make(
+                    frame.planes[0].width,
+                    frame.planes[0].height,
+                    wgpu::TextureFormat::R8Unorm,
+                    "Y",
+                ),
+                make(
+                    frame.planes[1].width,
+                    frame.planes[1].height,
+                    wgpu::TextureFormat::R8Unorm,
+                    "U",
+                ),
+                make(
+                    frame.planes[2].width,
+                    frame.planes[2].height,
+                    wgpu::TextureFormat::R8Unorm,
+                    "V",
+                ),
             ],
         };
         let view = |t: &wgpu::Texture| t.create_view(&wgpu::TextureViewDescriptor::default());
@@ -525,7 +555,8 @@ impl Renderer {
         let mut textures = std::mem::take(&mut output.textures_delta);
         for (id, deltas) in textures.set.drain() {
             for delta in &deltas {
-                self.egui.update_texture(&self.device, &self.queue, id, delta);
+                self.egui
+                    .update_texture(&self.device, &self.queue, id, delta);
             }
         }
         let result = self.render_inner(draw_video, egui_ctx, output, pixels_per_point);
@@ -542,7 +573,6 @@ impl Renderer {
         output: egui::FullOutput,
         pixels_per_point: f32,
     ) -> Option<FrameInfo> {
-
         // When the window is hidden we normally skip rendering entirely; a
         // pending screenshot is rendered offscreen instead.
         let frame = match self.surface.get_current_texture() {
@@ -600,10 +630,16 @@ impl Renderer {
         };
         let mut encoder = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
-        let extra = self
-            .egui
-            .update_buffers(&self.device, &self.queue, &mut encoder, &primitives, &screen);
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("frame"),
+            });
+        let extra = self.egui.update_buffers(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &primitives,
+            &screen,
+        );
 
         {
             let mut pass = encoder

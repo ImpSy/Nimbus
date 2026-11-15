@@ -6,12 +6,10 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-default = []
-# Build and statically link a minimal FFmpeg instead of using the system one
-# (used for release bundles).
-static-ffmpeg = ["ffmpeg-sys-next/build", "ffmpeg-sys-next/static"]
-static-ffmpeg-macos = ["static-ffmpeg", "ffmpeg-sys-next/build-videotoolbox"]
-static-ffmpeg-linux = ["static-ffmpeg", "ffmpeg-sys-next/build-vaapi", "ffmpeg-sys-next/build-drm"]
+default = ["static"]
+# Link the minimal static FFmpeg built by `mise run ffmpeg` (FFMPEG_DIR).
+# Disable default features to link a system FFmpeg (>= 5.1) via pkg-config.
+static = ["ffmpeg-sys-next/static"]
 
 [dependencies]
 # swresample is required by FFmpeg's native Opus decoder.

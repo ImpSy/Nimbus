@@ -1,3 +1,4 @@
 /target
+/.deps
 .DS_Store
 *.log

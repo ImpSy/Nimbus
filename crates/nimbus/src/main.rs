@@ -70,7 +70,11 @@ fn egui_modifiers(m: Mod) -> egui::Modifiers {
         ctrl,
         shift,
         mac_cmd,
-        command: if cfg!(target_os = "macos") { mac_cmd } else { ctrl },
+        command: if cfg!(target_os = "macos") {
+            mac_cmd
+        } else {
+            ctrl
+        },
     }
 }
 
@@ -218,8 +222,12 @@ fn main() -> Result<()> {
                         y * factor,
                     ))));
                 }
-                Event::MouseButtonDown { x, y, mouse_btn, .. }
-                | Event::MouseButtonUp { x, y, mouse_btn, .. } => {
+                Event::MouseButtonDown {
+                    x, y, mouse_btn, ..
+                }
+                | Event::MouseButtonUp {
+                    x, y, mouse_btn, ..
+                } => {
                     let button = match mouse_btn {
                         MouseButton::Left => egui::PointerButton::Primary,
                         MouseButton::Right => egui::PointerButton::Secondary,
@@ -252,7 +260,8 @@ fn main() -> Result<()> {
                     if down && !repeat {
                         match *k {
                             Keycode::F11 => {
-                                let fs = window.fullscreen_state() != sdl3::video::FullscreenType::Off;
+                                let fs =
+                                    window.fullscreen_state() != sdl3::video::FullscreenType::Off;
                                 let _ = window.set_fullscreen(!fs);
                                 continue;
                             }
