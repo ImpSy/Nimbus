@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Nimbus
+Comment=Xbox Remote Play & Cloud Gaming
+Exec=nimbus
+Icon=nimbus
+Categories=Game;
+Terminal=false

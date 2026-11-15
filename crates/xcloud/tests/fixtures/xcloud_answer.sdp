@@ -1,0 +1,86 @@
+v=0
+o=- 1206897819200911867 2 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=group:BUNDLE {A} {V} {D}
+a=extmap-allow-mixed
+a=msid-semantic: WMS 0 1
+m=audio 9 UDP/TLS/RTP/SAVPF 111
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:s1MX
+a=ice-pwd:oG+NQK6nqS9svO3OnnXF6b9F
+a=ice-options:trickle renomination
+a=fingerprint:sha-256 4F:6B:3D:56:F5:CC:A5:D9:B2:63:85:DA:C1:23:90:C5:DB:9D:CF:01:3F:C0:B0:4A:3F:2A:33:09:94:1E:21:8A
+a=setup:active
+a=mid:{A}
+a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level
+a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
+a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
+a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid
+a=sendrecv
+a=msid:0 f671d610-5792-4206-8b7a-5065f6c3b05f
+a=rtcp-mux
+a=rtpmap:111 opus/48000/2
+a=fmtp:111 minptime=10;useinbandfec=1
+a=ssrc:1897225254 cname:OIHn/yQUJt/2NeUp
+m=video 9 UDP/TLS/RTP/SAVPF 123 119 108 109 127 121
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:s1MX
+a=ice-pwd:oG+NQK6nqS9svO3OnnXF6b9F
+a=ice-options:trickle renomination
+a=fingerprint:sha-256 4F:6B:3D:56:F5:CC:A5:D9:B2:63:85:DA:C1:23:90:C5:DB:9D:CF:01:3F:C0:B0:4A:3F:2A:33:09:94:1E:21:8A
+a=setup:active
+a=mid:{V}
+a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
+a=extmap:13 urn:3gpp:video-orientation
+a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
+a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid
+a=extmap:10 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id
+a=extmap:11 urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id
+a=sendonly
+a=msid:1 0f37d49d-f1ce-43e9-acfe-eabd60755d3f
+a=rtcp-mux
+a=rtcp-rsize
+a=rtpmap:123 H264/90000
+a=rtcp-fb:123 goog-remb
+a=rtcp-fb:123 transport-cc
+a=rtcp-fb:123 ccm fir
+a=rtcp-fb:123 nack
+a=rtcp-fb:123 nack pli
+a=fmtp:123 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d002a
+a=rtpmap:119 rtx/90000
+a=fmtp:119 apt=123
+a=rtpmap:108 H264/90000
+a=rtcp-fb:108 goog-remb
+a=rtcp-fb:108 transport-cc
+a=rtcp-fb:108 ccm fir
+a=rtcp-fb:108 nack
+a=rtcp-fb:108 nack pli
+a=fmtp:108 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e02a
+a=rtpmap:109 rtx/90000
+a=fmtp:109 apt=108
+a=rtpmap:127 H264/90000
+a=rtcp-fb:127 goog-remb
+a=rtcp-fb:127 transport-cc
+a=rtcp-fb:127 ccm fir
+a=rtcp-fb:127 nack
+a=rtcp-fb:127 nack pli
+a=fmtp:127 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42002a
+a=rtpmap:121 rtx/90000
+a=fmtp:121 apt=127
+a=ssrc-group:FID 3945614638 633672403
+a=ssrc:3945614638 cname:OIHn/yQUJt/2NeUp
+a=ssrc:633672403 cname:OIHn/yQUJt/2NeUp
+m=application 9 UDP/DTLS/SCTP webrtc-datachannel
+c=IN IP4 0.0.0.0
+b=AS:30
+a=ice-ufrag:s1MX
+a=ice-pwd:oG+NQK6nqS9svO3OnnXF6b9F
+a=ice-options:trickle renomination
+a=fingerprint:sha-256 4F:6B:3D:56:F5:CC:A5:D9:B2:63:85:DA:C1:23:90:C5:DB:9D:CF:01:3F:C0:B0:4A:3F:2A:33:09:94:1E:21:8A
+a=setup:active
+a=mid:{D}
+a=sctp-port:5000
+a=max-message-size:262144

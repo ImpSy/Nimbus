@@ -1,0 +1,21 @@
+[package]
+name = "nimbus-media"
+description = "Low-latency H.264 / Opus decoding on top of FFmpeg (VideoToolbox, VA-API)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+# Build and statically link a minimal FFmpeg instead of using the system one
+# (used for release bundles).
+static-ffmpeg = ["ffmpeg-sys-next/build", "ffmpeg-sys-next/static"]
+static-ffmpeg-macos = ["static-ffmpeg", "ffmpeg-sys-next/build-videotoolbox"]
+static-ffmpeg-linux = ["static-ffmpeg", "ffmpeg-sys-next/build-vaapi", "ffmpeg-sys-next/build-drm"]
+
+[dependencies]
+# swresample is required by FFmpeg's native Opus decoder.
+ffmpeg-sys-next = { version = "9.1", default-features = false, features = ["avcodec", "swresample"] }
+libc = "0.2"
+thiserror.workspace = true
+tracing.workspace = true
