@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Build a self-contained target/Nimbus.app (FFmpeg + SDL3 linked statically).
-# Run through mise so FFMPEG_DIR is set:  mise run bundle:macos
+# Build a self-contained target/Nimbus.app (SDL3 linked statically; video via VideoToolbox).
+# Usage: mise run bundle:macos
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-: "${FFMPEG_DIR:?run this through mise: mise run bundle:macos}"
 
 cargo build --release -p nimbus
 

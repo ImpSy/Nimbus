@@ -1,7 +1,6 @@
-//! H.264 decoding tuned for latency.
+//! H.264 decoding on the Steam Deck: FFmpeg's decoder with VA-API.
 //!
-//! * hardware decode: VideoToolbox on macOS, VA-API on Linux (Steam Deck),
-//!   automatic fallback to software;
+//! * hardware decode through VA-API, automatic fallback to software;
 //! * `AV_CODEC_FLAG_LOW_DELAY`: a frame comes out for every frame that goes in
 //!   (no reorder buffering);
 //! * software decode uses slice threading only (frame threading would add one
@@ -9,86 +8,14 @@
 
 use std::ffi::CStr;
 use std::ptr;
-use std::sync::Arc;
-
-use std::sync::Mutex;
 
 use ffmpeg_sys_next as ff;
 
+use super::{BufferPool, CpuImage, FrameImage, Matrix, PixelLayout, Plane, VideoFrame};
 use crate::MediaError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PixelLayout {
-    /// Y plane + interleaved UV plane (hardware decoders).
-    Nv12,
-    /// Y, U, V planes (software decoder).
-    Yuv420p,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Matrix {
-    Bt601,
-    Bt709,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Plane {
-    pub offset: usize,
-    pub stride: usize,
-    pub width: u32,
-    pub height: u32,
-}
-
-/// A decoded picture in system memory, ready for GPU upload.
-pub struct VideoFrame {
-    pub width: u32,
-    pub height: u32,
-    pub layout: PixelLayout,
-    pub data: Vec<u8>,
-    pub planes: Vec<Plane>,
-    pub full_range: bool,
-    pub matrix: Matrix,
-    pub pts: i64,
-    pool: Option<BufferPool>,
-}
-
-impl VideoFrame {
-    pub fn plane(&self, i: usize) -> &[u8] {
-        let p = self.planes[i];
-        &self.data[p.offset..p.offset + p.stride * p.height as usize]
-    }
-}
-
-impl Drop for VideoFrame {
-    fn drop(&mut self) {
-        if let Some(pool) = self.pool.take() {
-            pool.put(std::mem::take(&mut self.data));
-        }
-    }
-}
-
-/// Recycles frame buffers so steady-state decoding does not allocate.
-#[derive(Clone, Default)]
-pub struct BufferPool(Arc<Mutex<Vec<Vec<u8>>>>);
-
-impl BufferPool {
-    fn get(&self, len: usize) -> Vec<u8> {
-        let mut v = self.0.lock().unwrap().pop().unwrap_or_default();
-        v.clear();
-        v.reserve(len);
-        v
-    }
-
-    fn put(&self, v: Vec<u8>) {
-        let mut pool = self.0.lock().unwrap();
-        if pool.len() < 6 {
-            pool.push(v);
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HwPreference {
+enum HwPreference {
     Auto,
     SoftwareOnly,
 }
@@ -128,26 +55,11 @@ unsafe extern "C" fn pick_hw_format(
 }
 
 fn hw_candidates() -> &'static [(ff::AVHWDeviceType, ff::AVPixelFormat, &'static str)] {
-    #[cfg(target_os = "macos")]
-    {
-        &[(
-            ff::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
-            ff::AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX,
-            "VideoToolbox",
-        )]
-    }
-    #[cfg(target_os = "linux")]
-    {
-        &[(
-            ff::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
-            ff::AVPixelFormat::AV_PIX_FMT_VAAPI,
-            "VA-API",
-        )]
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        &[]
-    }
+    &[(
+        ff::AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
+        ff::AVPixelFormat::AV_PIX_FMT_VAAPI,
+        "VA-API",
+    )]
 }
 
 fn av_err(code: i32) -> String {
@@ -159,7 +71,12 @@ fn av_err(code: i32) -> String {
 }
 
 impl VideoDecoder {
-    pub fn new(pref: HwPreference) -> Result<Self, MediaError> {
+    /// VA-API when available (Steam Deck), software otherwise.
+    pub fn new() -> Result<Self, MediaError> {
+        Self::with_preference(HwPreference::Auto)
+    }
+
+    fn with_preference(pref: HwPreference) -> Result<Self, MediaError> {
         crate::init_ffmpeg();
         if pref == HwPreference::Auto {
             for &(dev, fmt, name) in hw_candidates() {
@@ -248,8 +165,18 @@ impl VideoDecoder {
     }
 
     /// Decode one Annex-B access unit. Returns the decoded picture if one
-    /// came out (always the case for a valid frame with low-delay).
+    /// came out (always the case for a valid frame with low-delay). Falls
+    /// back to software decoding if VA-API keeps failing.
     pub fn decode(&mut self, data: &[u8], pts: i64) -> Result<Option<VideoFrame>, MediaError> {
+        let result = self.decode_inner(data, pts);
+        if result.is_err() && self.is_hardware() && self.consecutive_errors > 8 {
+            tracing::warn!("VA-API decoder keeps failing, switching to software decoding");
+            *self = Self::with_preference(HwPreference::SoftwareOnly)?;
+        }
+        result
+    }
+
+    fn decode_inner(&mut self, data: &[u8], pts: i64) -> Result<Option<VideoFrame>, MediaError> {
         self.pad.clear();
         self.pad.extend_from_slice(data);
         self.pad
@@ -369,13 +296,15 @@ impl VideoDecoder {
             Ok(VideoFrame {
                 width,
                 height,
-                layout,
-                data,
-                planes,
                 full_range,
                 matrix,
                 pts: f.pts,
-                pool: Some(self.pool.clone()),
+                image: FrameImage::Cpu(CpuImage::new(
+                    layout,
+                    data,
+                    planes,
+                    Some(self.pool.clone()),
+                )),
             })
         }
     }

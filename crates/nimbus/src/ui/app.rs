@@ -554,12 +554,7 @@ impl App {
         let (video_tx, video_rx) = unbounded();
         let (audio_tx, audio_rx) = unbounded();
         let (events_tx, events_rx) = unbounded();
-        let video = VideoPipeline::spawn(
-            video_rx,
-            self.settings.decoder,
-            self.shared.clone(),
-            self.frame_notify.clone(),
-        );
+        let video = VideoPipeline::spawn(video_rx, self.shared.clone(), self.frame_notify.clone());
         let audio = AudioPipeline::spawn(audio_rx, self.settings.audio_buffer_ms);
         let sinks = StreamSinks {
             video: video_tx,

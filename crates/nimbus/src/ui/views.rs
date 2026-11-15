@@ -12,7 +12,7 @@ use xcloud::stream::CodecPreference;
 
 use super::app::{App, Load, LoginState, Screen, StreamTarget, Tab};
 use super::style::{ACCENT, ACCENT_BRIGHT, BG_CARD, BG_CARD_HOVER, TEXT_DIM};
-use crate::settings::{DecoderPref, PresentPref};
+use crate::settings::PresentPref;
 use crate::shared::MainMsg;
 
 pub fn draw(app: &mut App, ui: &mut Ui) {
@@ -652,9 +652,6 @@ fn settings(app: &mut App, ui: &mut Ui) {
             let s = &mut app.settings;
             ui.add_space(14.0);
             section_title(ui, "Video");
-            let decoders: Vec<(DecoderPref, &str)> =
-                DecoderPref::ALL.iter().map(|d| (*d, d.label())).collect();
-            changed |= choice(ui, "Decoder", &mut s.decoder, &decoders);
             let presents: Vec<(PresentPref, &str)> =
                 PresentPref::ALL.iter().map(|p| (*p, p.label())).collect();
             changed |= choice(ui, "Presentation", &mut s.present, &presents);

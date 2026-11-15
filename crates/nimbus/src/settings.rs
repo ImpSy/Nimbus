@@ -7,25 +7,6 @@ use xcloud::device_info::Resolution;
 use xcloud::stream::CodecPreference;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum DecoderPref {
-    /// Hardware decoding (VideoToolbox / VA-API) with software fallback.
-    #[default]
-    Hardware,
-    /// CPU decoding. On fast CPUs (Apple Silicon) this can shave ~2 ms.
-    Software,
-}
-
-impl DecoderPref {
-    pub const ALL: [DecoderPref; 2] = [DecoderPref::Hardware, DecoderPref::Software];
-    pub fn label(self) -> &'static str {
-        match self {
-            DecoderPref::Hardware => "Hardware (VideoToolbox / VA-API)",
-            DecoderPref::Software => "Software (CPU)",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PresentPref {
     /// Mailbox when available (no tearing, newest frame wins), else V-Sync
     /// with a single frame in flight.
@@ -55,7 +36,6 @@ pub struct Settings {
     pub codec: CodecPreference,
     /// 0 = unlimited.
     pub max_bitrate_mbps: u32,
-    pub decoder: DecoderPref,
     pub present: PresentPref,
     /// 0.0 ..= 1.0 contrast-adaptive sharpening strength.
     pub sharpness: f32,
@@ -78,7 +58,6 @@ impl Default for Settings {
             resolution: Resolution::P1080Hq,
             codec: CodecPreference::Main,
             max_bitrate_mbps: 0,
-            decoder: DecoderPref::Hardware,
             present: PresentPref::LowLatency,
             sharpness: 0.35,
             show_stats: false,

@@ -86,6 +86,21 @@ fn main() -> Result<()> {
 
     // Keep receiving controller input when the window is not focused (e.g.
     // Steam overlay), and use the positional (Xbox) button layout.
+    // Automated / debug runs (screenshots, auto-exit, scripted input) stay
+    // silent: route audio to SDL's dummy driver unless explicitly overridden.
+    // NIMBUS_MUTE=1 does the same for interactive runs.
+    let automated = [
+        "NIMBUS_EXIT_AFTER",
+        "NIMBUS_SCREENSHOT",
+        "NIMBUS_TEST_INPUT",
+        "NIMBUS_TEST_NAV",
+        "NIMBUS_MUTE",
+    ]
+    .iter()
+    .any(|v| std::env::var_os(v).is_some());
+    if automated && std::env::var_os("SDL_AUDIO_DRIVER").is_none() {
+        sdl3::hint::set("SDL_AUDIO_DRIVER", "dummy");
+    }
     sdl3::hint::set("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
     sdl3::hint::set("SDL_GAMECONTROLLER_USE_BUTTON_LABELS", "0");
     sdl3::hint::set("SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS", "0");

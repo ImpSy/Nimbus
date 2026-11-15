@@ -6,15 +6,9 @@ edition.workspace = true
 license.workspace = true
 default-run = "nimbus"
 
-[features]
-default = ["static-ffmpeg"]
-# Statically link the FFmpeg built by `mise run ffmpeg` (self-contained binary).
-# `--no-default-features` links a system FFmpeg instead.
-static-ffmpeg = ["nimbus-media/static"]
-
 [dependencies]
 xcloud = { path = "../xcloud" }
-nimbus-media = { path = "../media", default-features = false }
+nimbus-media = { path = "../media" }
 
 anyhow.workspace = true
 serde.workspace = true
@@ -38,3 +32,8 @@ raw-window-handle = "0.6"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 qrcode = { version = "0.14", default-features = false }
 webbrowser = "1"
+
+# Zero-copy video: wrap VideoToolbox's decoded IOSurfaces as wgpu textures.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-metal = "0.3"

@@ -7,7 +7,8 @@ use std::path::Path;
 
 fn main() {
     println!("cargo:rerun-if-env-changed=FFMPEG_DIR");
-    if std::env::var("CARGO_FEATURE_STATIC").is_err() {
+    // FFmpeg is only used on Linux (Steam Deck); macOS uses VideoToolbox.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") {
         return;
     }
     let Ok(dir) = std::env::var("FFMPEG_DIR") else {
@@ -15,7 +16,7 @@ fn main() {
     };
     let pc_dir = Path::new(&dir).join("lib/pkgconfig");
     let mut seen = std::collections::HashSet::new();
-    for lib in ["libavcodec", "libswresample", "libavutil"] {
+    for lib in ["libavcodec", "libavutil"] {
         let pc = pc_dir.join(format!("{lib}.pc"));
         println!("cargo:rerun-if-changed={}", pc.display());
         let Ok(text) = std::fs::read_to_string(&pc) else {

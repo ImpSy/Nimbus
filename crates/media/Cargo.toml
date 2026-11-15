@@ -1,19 +1,27 @@
 [package]
 name = "nimbus-media"
-description = "Low-latency H.264 / Opus decoding on top of FFmpeg (VideoToolbox, VA-API)"
+description = "Low-latency H.264 / Opus decoding: VideoToolbox (Apple Silicon) and VA-API (Steam Deck)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[features]
-default = ["static"]
-# Link the minimal static FFmpeg built by `mise run ffmpeg` (FFMPEG_DIR).
-# Disable default features to link a system FFmpeg (>= 5.1) via pkg-config.
-static = ["ffmpeg-sys-next/static"]
-
 [dependencies]
-# swresample is required by FFmpeg's native Opus decoder.
-ffmpeg-sys-next = { version = "9.1", default-features = false, features = ["avcodec", "swresample"] }
-libc = "0.2"
+# Pure-Rust Opus decoder (RFC 8251 conformant, no FFI).
+opus-decoder = "0.1"
 thiserror.workspace = true
 tracing.workspace = true
+
+# macOS: VideoToolbox / CoreVideo called directly through the system frameworks.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-core-foundation = "0.3"
+objc2-core-media = "0.3"
+objc2-core-video = "0.3"
+objc2-video-toolbox = "0.3"
+objc2-metal = "0.3"
+
+# Steam Deck: FFmpeg's H.264 decoder with VA-API, built by `mise run ffmpeg`
+# (scripts/build-ffmpeg.sh) and linked statically.
+[target.'cfg(target_os = "linux")'.dependencies]
+ffmpeg-sys-next = { version = "9.1", default-features = false, features = ["avcodec", "static"] }
+libc = "0.2"

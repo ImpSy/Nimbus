@@ -7,12 +7,11 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender, TrySendError};
 use nimbus_media::audio::{CHANNELS, OpusDecoder, SAMPLE_RATE};
-use nimbus_media::video::{HwPreference, VideoDecoder, VideoFrame};
+use nimbus_media::video::{VideoDecoder, VideoFrame};
 use parking_lot::Mutex;
 use sdl3::sys::audio as sdl_audio;
 use xcloud::stream::{Command, EncodedAudioPacket, EncodedVideoFrame};
 
-use crate::settings::DecoderPref;
 use crate::shared::Shared;
 
 /// How long we hide corrupted video waiting for a keyframe after loss before
@@ -62,12 +61,7 @@ pub struct VideoPipeline {
 }
 
 impl VideoPipeline {
-    pub fn spawn(
-        rx: Receiver<EncodedVideoFrame>,
-        pref: DecoderPref,
-        shared: Arc<Shared>,
-        notify: Sender<()>,
-    ) -> Self {
+    pub fn spawn(rx: Receiver<EncodedVideoFrame>, shared: Arc<Shared>, notify: Sender<()>) -> Self {
         let mailbox = Arc::new(Mailbox::default());
         let stats = Arc::new(Mutex::new(DecodeStats::default()));
         let thread = {
@@ -75,7 +69,7 @@ impl VideoPipeline {
             let stats = stats.clone();
             std::thread::Builder::new()
                 .name("video-decode".into())
-                .spawn(move || video_thread(rx, pref, shared, notify, mailbox, stats))
+                .spawn(move || video_thread(rx, shared, notify, mailbox, stats))
                 .expect("spawn video thread")
         };
         Self {
@@ -100,12 +94,8 @@ fn request_keyframe(shared: &Shared) {
     }
 }
 
-fn open_decoder(pref: DecoderPref) -> Option<VideoDecoder> {
-    let hw = match pref {
-        DecoderPref::Hardware => HwPreference::Auto,
-        DecoderPref::Software => HwPreference::SoftwareOnly,
-    };
-    match VideoDecoder::new(hw) {
+fn open_decoder() -> Option<VideoDecoder> {
+    match VideoDecoder::new() {
         Ok(d) => Some(d),
         Err(e) => {
             tracing::error!("cannot create video decoder: {e}");
@@ -116,14 +106,13 @@ fn open_decoder(pref: DecoderPref) -> Option<VideoDecoder> {
 
 fn video_thread(
     rx: Receiver<EncodedVideoFrame>,
-    pref: DecoderPref,
     shared: Arc<Shared>,
     notify: Sender<()>,
     mailbox: Arc<Mailbox>,
     stats: Arc<Mutex<DecodeStats>>,
 ) {
     raise_priority();
-    let Some(mut dec) = open_decoder(pref) else {
+    let Some(mut dec) = open_decoder() else {
         return;
     };
     stats.lock().backend = dec.backend();
@@ -201,13 +190,8 @@ fn video_thread(
                 tracing::warn!("decode error: {e}");
                 request_keyframe(&shared);
                 waiting_for_keyframe = Some(Instant::now());
-                if dec.is_hardware() && dec.consecutive_errors() > 8 {
-                    tracing::warn!("hardware decoder keeps failing, switching to software");
-                    if let Some(d) = open_decoder(DecoderPref::Software) {
-                        dec = d;
-                        stats.lock().backend = dec.backend();
-                    }
-                }
+                // The Linux decoder may have fallen back to software.
+                stats.lock().backend = dec.backend();
             }
         }
     }
@@ -267,6 +251,11 @@ fn audio_thread(rx: Receiver<EncodedAudioPacket>, buffer_ms: u32) {
         return;
     }
     let stream = SdlStream(stream);
+    let driver = unsafe { sdl_audio::SDL_GetCurrentAudioDriver() };
+    if !driver.is_null() {
+        let name = unsafe { std::ffi::CStr::from_ptr(driver) }.to_string_lossy();
+        tracing::info!(driver = %name, "audio output opened");
+    }
     let bytes_per_ms = (SAMPLE_RATE / 1000 * CHANNELS * 4) as i32;
     let target = buffer_ms.max(10) as i32 * bytes_per_ms;
     let max = target * 2 + 20 * bytes_per_ms;

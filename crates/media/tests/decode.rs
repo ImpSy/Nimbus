@@ -1,10 +1,14 @@
-//! Decodes a clip generated with the FFmpeg CLI (skipped if unavailable).
+//! Decodes clips generated with the FFmpeg command line tool (installed by
+//! mise; tests are skipped if it is unavailable). Needs the platform decoder
+//! (VideoToolbox on macOS, VA-API or software on Linux).
 
 use std::path::PathBuf;
 use std::process::Command;
 
 use nimbus_media::audio::OpusDecoder;
-use nimbus_media::video::{HwPreference, PixelLayout, VideoDecoder};
+#[cfg(target_os = "macos")]
+use nimbus_media::video::BufferPool;
+use nimbus_media::video::{CpuImage, FrameImage, PixelLayout, VideoDecoder, VideoFrame};
 
 fn make_clip(name: &str, args: &[&str]) -> Option<PathBuf> {
     let dir = std::env::temp_dir().join("nimbus-media-tests");
@@ -43,7 +47,16 @@ pub fn split_access_units(data: &[u8]) -> Vec<&[u8]> {
     starts.windows(2).map(|w| &data[w[0]..w[1]]).collect()
 }
 
-fn decode_clip(pref: HwPreference) {
+fn to_cpu(frame: &VideoFrame) -> Option<&CpuImage> {
+    match &frame.image {
+        FrameImage::Cpu(c) => Some(c),
+        #[cfg(target_os = "macos")]
+        FrameImage::PixelBuffer(_) => None,
+    }
+}
+
+#[test]
+fn decode_clip() {
     let Some(path) = make_clip(
         "main_1080p.h264",
         &[
@@ -74,34 +87,44 @@ fn decode_clip(pref: HwPreference) {
     let aus = split_access_units(&data);
     assert!(aus.len() >= 59, "got {} access units", aus.len());
 
-    let mut dec = VideoDecoder::new(pref).unwrap();
+    let mut dec = VideoDecoder::new().unwrap();
     eprintln!("backend: {}", dec.backend());
-    let mut frames = 0u32;
-    let t = std::time::Instant::now();
+    #[cfg(target_os = "macos")]
+    let pool = BufferPool::default();
+    let mut frames = 0usize;
     for (i, au) in aus.iter().enumerate() {
-        if let Some(f) = dec.decode(au, i as i64).unwrap() {
-            assert_eq!((f.width, f.height), (1920, 1080));
-            assert_eq!(f.pts, i as i64, "low-delay: output must match input order");
-            if dec.is_hardware() {
-                assert_eq!(f.layout, PixelLayout::Nv12);
-            }
-            frames += 1;
+        let f = dec
+            .decode(au, i as i64)
+            .unwrap()
+            .expect("low delay: one picture per access unit");
+        assert_eq!((f.width, f.height), (1920, 1080));
+        assert_eq!(f.pts, i as i64, "output must match input order");
+        assert!(!f.full_range);
+        // The picture must contain the test pattern, not black/green.
+        #[cfg(target_os = "macos")]
+        let owned = match &f.image {
+            FrameImage::PixelBuffer(pb) => Some(pb.copy_to_cpu(&pool)),
+            _ => None,
+        };
+        #[cfg(not(target_os = "macos"))]
+        let owned: Option<CpuImage> = None;
+        let cpu = to_cpu(&f).or(owned.as_ref()).expect("picture data");
+        if i == 10 {
+            let y = cpu.plane(0);
+            let mean = y.iter().map(|&v| v as u64).sum::<u64>() / y.len() as u64;
+            assert!((40..220).contains(&mean), "suspicious luma mean {mean}");
+            assert_eq!(
+                cpu.layout,
+                if cfg!(target_os = "macos") {
+                    PixelLayout::Nv12
+                } else {
+                    cpu.layout
+                }
+            );
         }
+        frames += 1;
     }
-    let per = t.elapsed() / frames.max(1);
-    eprintln!("decoded {frames} frames, {per:?}/frame");
-    // Low delay: every access unit must produce a frame immediately.
-    assert_eq!(frames as usize, aus.len());
-}
-
-#[test]
-fn decode_hardware_or_fallback() {
-    decode_clip(HwPreference::Auto);
-}
-
-#[test]
-fn decode_software() {
-    decode_clip(HwPreference::SoftwareOnly);
+    assert_eq!(frames, aus.len());
 }
 
 #[test]
@@ -191,8 +214,8 @@ fn bench_decoders() {
     };
     let data = std::fs::read(path).unwrap();
     let aus = split_access_units(&data);
-    for pref in [HwPreference::Auto, HwPreference::SoftwareOnly] {
-        let mut dec = VideoDecoder::new(pref).unwrap();
+    {
+        let mut dec = VideoDecoder::new().unwrap();
         let mut times = Vec::new();
         for (i, au) in aus.iter().enumerate() {
             let t = std::time::Instant::now();

@@ -1,15 +1,16 @@
 # Nimbus
 
 A native, low-latency **Xbox Remote Play** (stream from your own console) and
-**Xbox Cloud Gaming** (xCloud / Game Pass) client for **macOS** and **Linux /
-Steam Deck**, written in Rust.
+**Xbox Cloud Gaming** (xCloud / Game Pass) client for **Apple Silicon Macs**
+and the **Steam Deck**, written in Rust. Those are the only supported targets
+(other platforms fail at compile time).
 
 Inspired by [Greenlight](https://github.com/unknownskl/greenlight), but instead
 of wrapping the web player in Electron, every stage of the pipeline is native
 and tuned for picture quality, frame rate and latency:
 
 ```
-UDP ─► str0m (WebRTC, sans-IO) ─► H.264 frames ─► FFmpeg (VideoToolbox / VA-API) ─► wgpu (YUV→RGB + sharpening) ─► display
+UDP ─► str0m (WebRTC, sans-IO) ─► H.264 frames ─► VideoToolbox (Mac) / VA-API (Deck) ─► wgpu (YUV→RGB + sharpening) ─► display
                      ▲                                                                                        
 SDL3 controller events ─► input packets (sent immediately, no polling loop)
 ```
@@ -31,7 +32,7 @@ SDL3 controller events ─► input packets (sent immediately, no polling loop)
 | Resolution / bitrate | 720p or 1080p (`windows` device profile) | **1080p high-bitrate profile by default** (`tizen` device profile, the trick Better xCloud uses) |
 | H.264 profile | Main preferred via `setCodecPreferences` | Main preferred too, plus an optional High-profile offer |
 | Jitter buffer | Chromium's adaptive playout delay buffer | **none**: a frame goes to the decoder the moment it is complete; losses are repaired with NACK/RTX (TWCC feedback keeps the server's bitrate ramping, as in a browser) |
-| Decode | Chromium pipeline (VA-API often disabled on Linux, i.e. software decode on the Deck) | FFmpeg `LOW_DELAY` (one frame in → one frame out), **VideoToolbox / VA-API**, slice-threaded software fallback |
+| Decode | Chromium pipeline (VA-API often disabled on Linux, i.e. software decode on the Deck) | Mac: **VideoToolbox called directly**, decoded frames rendered straight from GPU memory (zero copy). Deck: FFmpeg's H.264 decoder with **VA-API**. One frame in → one frame out, no reorder buffering |
 | Presentation | `<video>` / canvas through the browser compositor | dedicated render thread, "latest frame wins" mailbox, selectable mailbox / FIFO(1) / immediate presentation |
 | Controller input | `navigator.getGamepads()` polled every 16 ms | **event driven**: each SDL3 controller event is written to the data channel immediately (+16 ms heartbeat), so ~8 ms less input delay on average |
 | Packet loss | frozen until a keyframe arrives | same freeze-until-keyframe behaviour (PLI + control message), but resumes after 700 ms if the encoder uses intra refresh instead |
@@ -41,7 +42,7 @@ SDL3 controller events ─► input packets (sent immediately, no polling loop)
 | macOS | — | Game Mode enabled in the app bundle (higher priority, doubled Bluetooth controller polling) |
 
 Measured against the local mock stream (Apple M1, 1080p60 at 14 Mb/s, release
-build): about 4 ms VideoToolbox decode (1.3 ms with the software decoder),
+build): about 2 ms VideoToolbox decode with zero-copy rendering,
 15–30 ms from the first packet of a frame to on-screen depending on vsync
 phase, and a steady 60 fps with no dropped frames after startup. The stats
 overlay (F1) shows the live breakdown (network/queue + decode + render).
@@ -67,19 +68,19 @@ overlay (F1) shows the live breakdown (network/queue + decode + render).
 ## Getting started
 
 Everything is managed by [mise](https://mise.jdx.dev): the Rust toolchain,
-CMake, the test-media tools and a minimal **static FFmpeg** built from source
-(no Homebrew, no system FFmpeg). On a fresh clone:
+CMake and the test-media tools. No Homebrew, and no FFmpeg on macOS: video is
+decoded by VideoToolbox and audio by a pure-Rust Opus decoder. On a fresh
+clone:
 
 ```sh
 mise trust          # allow this repo's mise.toml
-mise install        # Rust, cmake, … then builds FFmpeg into .deps/ (~1 min, once)
+mise install        # Rust, cmake, test-media tools
 mise run app        # build & run Nimbus
 ```
 
-The only prerequisite is a C toolchain: Xcode Command Line Tools on macOS
-(`xcode-select --install`), `build-essential` plus the `-dev` packages listed
-in `packaging/linux/Dockerfile` on Linux. SDL3 and FFmpeg are compiled from
-source and linked statically, so the resulting binary is self-contained.
+The only prerequisite on the Mac is the Xcode Command Line Tools
+(`xcode-select --install`). SDL3 is compiled from source and linked
+statically, so the resulting app is self-contained.
 
 `mise tasks` lists everything:
 
@@ -88,22 +89,21 @@ source and linked statically, so the resulting binary is self-contained.
 | `mise run app` / `dev` | run Nimbus (release / debug) |
 | `mise run build` | release build (`target/release/nimbus`) |
 | `mise run test` / `lint` / `fmt` | tests, clippy + rustfmt check, format |
-| `mise run bench` | hardware vs software decoder benchmark |
+| `mise run bench` | decoder benchmark |
 | `mise run mock` | run Nimbus against the local mock server (no account needed) |
 | `mise run mock:server` / `mock:media` | just the mock server / regenerate its test media |
 | `mise run bundle:macos` | self-contained `target/Nimbus.app` |
 | `mise run deck:build` | Steam Deck (x86_64 Linux) release in Docker → `target/deck/` |
 | `mise run deck:e2e` | headless Linux end-to-end test in Docker (Xvfb + lavapipe + mock server) |
-| `mise run ffmpeg` / `setup` | (re)build the static FFmpeg; runs automatically after `mise install` |
+| `mise run ffmpeg` / `setup` | Steam Deck build only: static FFmpeg (H.264 + VA-API); a no-op on macOS |
 
-Plain `cargo …` commands work too inside a mise-activated shell (mise exports
-`FFMPEG_DIR`). To link a system FFmpeg (≥ 5.1) instead, build with
-`cargo build -p nimbus --no-default-features`.
+Plain `cargo …` commands work too inside a mise-activated shell.
 
 ### Steam Deck
 
 `mise run deck:build` (needs Docker, e.g. OrbStack / Docker Desktop) builds in
-an Ubuntu 22.04 container (glibc 2.35), using the same mise toolchain, and
+an Ubuntu 22.04 container (glibc 2.35), using the same mise toolchain plus a
+minimal static FFmpeg (H.264 decoder + VA-API, built from source), and
 writes `target/deck/nimbus` plus a tarball (and an AppImage when
 `appimagetool` is available). The binary only depends on glibc, libva and
 libdrm (all present on SteamOS); X11/Wayland/PipeWire are loaded at runtime by
@@ -149,7 +149,6 @@ Debug environment variables:
 | Resolution | 720p (`android`), 1080p (`windows`), **1080p high bitrate** (`tizen`) device profiles |
 | H.264 profile | Main (default), High (experimental, falls back if the server doesn't offer it), Baseline |
 | Max bitrate | `b=AS` cap for slow connections; Unlimited by default |
-| Decoder | Hardware (VideoToolbox / VA-API, falls back to software after repeated errors) or Software |
 | Presentation | Low latency (mailbox when available, else V-Sync with one frame in flight), V-Sync (two frames, smoothest), Immediate (may tear) |
 | Sharpening | contrast-adaptive sharpening strength |
 | Stick deadzone, vibration, audio buffer | |
@@ -165,7 +164,8 @@ permissions.
 crates/xcloud   protocol library (no UI): auth, GSSV API, catalog, WebRTC session
                 (str0m driver on a dedicated mio thread), input/control/message
                 channel protocols, ICE/Teredo helpers, mock server example
-crates/media    FFmpeg-based H.264 (hardware accelerated) and Opus decoders
+crates/media    H.264 decoding (VideoToolbox + zero-copy Metal on Mac, FFmpeg/VA-API
+                on the Deck) and pure-Rust Opus decoding
 crates/nimbus   the app: SDL3 window/controllers/audio, wgpu renderer, egui UI
 packaging/      macOS .app bundle script, Linux/Steam Deck Docker build (Dockerfile,
                 build.sh, e2e.sh, docker-run.sh)
@@ -177,7 +177,7 @@ wgpu, app state), **xcloud-net** (WebRTC + data channels, woken instantly via
 
 ```
 mise.toml       toolchains, FFMPEG_DIR, tasks
-scripts/        build-ffmpeg.sh (static FFmpeg), mock-media.sh, mock.sh
+scripts/        build-ffmpeg.sh (Deck build), mock-media.sh, mock.sh
 ```
 
 ## Status and limitations
@@ -191,7 +191,11 @@ scripts/        build-ffmpeg.sh (static FFmpeg), mock-media.sh, mock.sh
   version is taken from the server's SDP answer.
 * Not implemented yet: voice chat (microphone), touch controls, native
   mouse & keyboard input for xCloud titles, multiple accounts.
-* Possible next steps: zero-copy VideoToolbox → Metal and VA-API → Vulkan
-  (DMA-BUF) texture import, HDR, Flatpak packaging.
+* The Steam Deck still uses FFmpeg (H.264 + VA-API only). The pure-Rust
+  VA-API option (`cros-codecs`) holds decoded frames until its reference
+  buffer fills (up to ~4 frames, ~67 ms at 1080p60), so switching needs a
+  patched low-latency output path and testing on real Deck hardware.
+* Possible next steps: zero-copy VA-API → Vulkan (DMA-BUF) on the Deck, HDR,
+  Flatpak packaging.
 
 Not affiliated with Microsoft. Xbox is a trademark of Microsoft Corporation.

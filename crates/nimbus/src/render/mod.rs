@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use nimbus_media::video::{Matrix, PixelLayout, VideoFrame};
+use nimbus_media::video::{CpuImage, FrameImage, Matrix, PixelLayout, VideoFrame};
 use raw_window_handle::{DisplayHandle, HandleError, HasDisplayHandle, RawDisplayHandle};
 
 use crate::settings::PresentPref;
@@ -35,6 +35,8 @@ struct VideoTextures {
     width: u32,
     height: u32,
     layout: PixelLayout,
+    /// Planes alias VideoToolbox's IOSurfaces (recreated every frame).
+    zero_copy: bool,
     planes: Vec<wgpu::Texture>,
     bind_group: wgpu::BindGroup,
 }
@@ -57,6 +59,10 @@ pub struct Renderer {
 
     egui: egui_wgpu::Renderer,
     screenshot: Option<std::path::PathBuf>,
+    #[cfg(target_os = "macos")]
+    metal_cache: Option<nimbus_media::video::videotoolbox::MetalTextureCache>,
+    #[cfg(target_os = "macos")]
+    pool: nimbus_media::video::BufferPool,
 }
 
 pub struct FrameInfo {
@@ -246,6 +252,11 @@ impl Renderer {
             },
         );
 
+        #[cfg(target_os = "macos")]
+        let metal_cache = unsafe { device.as_hal::<wgpu::hal::api::Metal>() }.and_then(|hal| {
+            nimbus_media::video::videotoolbox::MetalTextureCache::new(hal.raw_device())
+        });
+
         Ok(Self {
             device,
             queue,
@@ -267,6 +278,10 @@ impl Renderer {
                 matrix: 1,
                 _pad: [0; 2],
             },
+            #[cfg(target_os = "macos")]
+            metal_cache,
+            #[cfg(target_os = "macos")]
+            pool: Default::default(),
             egui,
             screenshot: None,
         })
@@ -387,71 +402,12 @@ impl Renderer {
         self.video.is_some()
     }
 
-    fn ensure_textures(&mut self, frame: &VideoFrame) {
-        if let Some(v) = &self.video
-            && v.width == frame.width
-            && v.height == frame.height
-            && v.layout == frame.layout
-        {
-            return;
-        }
-        let make = |w: u32, h: u32, format: wgpu::TextureFormat, label: &str| {
-            self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some(label),
-                size: wgpu::Extent3d {
-                    width: w,
-                    height: h,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            })
-        };
-        let planes: Vec<wgpu::Texture> = match frame.layout {
-            PixelLayout::Nv12 => vec![
-                make(
-                    frame.planes[0].width,
-                    frame.planes[0].height,
-                    wgpu::TextureFormat::R8Unorm,
-                    "Y",
-                ),
-                make(
-                    frame.planes[1].width,
-                    frame.planes[1].height,
-                    wgpu::TextureFormat::Rg8Unorm,
-                    "UV",
-                ),
-            ],
-            PixelLayout::Yuv420p => vec![
-                make(
-                    frame.planes[0].width,
-                    frame.planes[0].height,
-                    wgpu::TextureFormat::R8Unorm,
-                    "Y",
-                ),
-                make(
-                    frame.planes[1].width,
-                    frame.planes[1].height,
-                    wgpu::TextureFormat::R8Unorm,
-                    "U",
-                ),
-                make(
-                    frame.planes[2].width,
-                    frame.planes[2].height,
-                    wgpu::TextureFormat::R8Unorm,
-                    "V",
-                ),
-            ],
-        };
+    fn bind_group(&self, planes: &[wgpu::Texture]) -> wgpu::BindGroup {
         let view = |t: &wgpu::Texture| t.create_view(&wgpu::TextureViewDescriptor::default());
         let y = view(&planes[0]);
         let u = view(&planes[1]);
         let v = planes.get(2).map(view).unwrap_or_else(|| view(&self.dummy));
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("video"),
             layout: &self.bind_layout,
             entries: &[
@@ -476,28 +432,64 @@ impl Renderer {
                     resource: wgpu::BindingResource::TextureView(&v),
                 },
             ],
-        });
-        tracing::info!(
-            width = frame.width,
-            height = frame.height,
-            layout = ?frame.layout,
-            "video textures (re)created"
-        );
+        })
+    }
+
+    /// (Re)create upload targets for CPU-side pictures.
+    fn ensure_cpu_textures(&mut self, img: &CpuImage, width: u32, height: u32) {
+        if let Some(v) = &self.video
+            && !v.zero_copy
+            && v.width == width
+            && v.height == height
+            && v.layout == img.layout
+        {
+            return;
+        }
+        let make = |w: u32, h: u32, format: wgpu::TextureFormat, label: &str| {
+            self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            })
+        };
+        let p = &img.planes;
+        let planes: Vec<wgpu::Texture> = match img.layout {
+            PixelLayout::Nv12 => vec![
+                make(p[0].width, p[0].height, wgpu::TextureFormat::R8Unorm, "Y"),
+                make(p[1].width, p[1].height, wgpu::TextureFormat::Rg8Unorm, "UV"),
+            ],
+            PixelLayout::Yuv420p => vec![
+                make(p[0].width, p[0].height, wgpu::TextureFormat::R8Unorm, "Y"),
+                make(p[1].width, p[1].height, wgpu::TextureFormat::R8Unorm, "U"),
+                make(p[2].width, p[2].height, wgpu::TextureFormat::R8Unorm, "V"),
+            ],
+        };
+        let bind_group = self.bind_group(&planes);
+        tracing::info!(width, height, layout = ?img.layout, "video upload textures (re)created");
         self.video = Some(VideoTextures {
-            width: frame.width,
-            height: frame.height,
-            layout: frame.layout,
+            width,
+            height,
+            layout: img.layout,
+            zero_copy: false,
             planes,
             bind_group,
         });
     }
 
-    /// Upload a decoded frame.
-    pub fn upload(&mut self, frame: &VideoFrame, sharpness: f32) {
-        self.ensure_textures(frame);
+    fn upload_cpu(&mut self, img: &CpuImage, width: u32, height: u32) {
+        self.ensure_cpu_textures(img, width, height);
         let Some(v) = &self.video else { return };
         for (i, tex) in v.planes.iter().enumerate() {
-            let p = frame.planes[i];
+            let p = img.planes[i];
             self.queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: tex,
@@ -505,7 +497,7 @@ impl Renderer {
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                frame.plane(i),
+                img.plane(i),
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(p.stride as u32),
@@ -518,10 +510,101 @@ impl Renderer {
                 },
             );
         }
+    }
+
+    /// Sample VideoToolbox's output directly: wrap the decoded IOSurface
+    /// planes as Metal textures, no pixel copies at all. The CoreVideo
+    /// objects are released by wgpu once the GPU is done with them.
+    #[cfg(target_os = "macos")]
+    fn upload_zero_copy(&mut self, pb: &nimbus_media::video::PixelBuffer) -> bool {
+        use wgpu::hal;
+        let Some(cache) = &self.metal_cache else {
+            return false;
+        };
+        let Some(planes) = cache.planes(pb) else {
+            return false;
+        };
+        let formats = [wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm];
+        let textures: Vec<wgpu::Texture> = planes
+            .into_iter()
+            .zip(formats)
+            .map(|(plane, format)| {
+                let size = wgpu::Extent3d {
+                    width: plane.width,
+                    height: plane.height,
+                    depth_or_array_layers: 1,
+                };
+                let raw = plane.texture.clone();
+                unsafe {
+                    let hal_texture = hal::metal::Device::texture_from_raw(
+                        raw,
+                        format,
+                        objc2_metal::MTLTextureType::Type2D,
+                        1,
+                        1,
+                        hal::CopyExtent {
+                            width: plane.width,
+                            height: plane.height,
+                            depth: 1,
+                        },
+                        Some(Box::new(move || drop(plane))),
+                    );
+                    self.device.create_texture_from_hal::<hal::api::Metal>(
+                        hal_texture,
+                        &wgpu::TextureDescriptor {
+                            label: Some("video plane (IOSurface)"),
+                            size,
+                            mip_level_count: 1,
+                            sample_count: 1,
+                            dimension: wgpu::TextureDimension::D2,
+                            format,
+                            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                            view_formats: &[],
+                        },
+                        wgpu::TextureUses::RESOURCE,
+                    )
+                }
+            })
+            .collect();
+        let first = self.video.as_ref().is_none_or(|v| !v.zero_copy);
+        let bind_group = self.bind_group(&textures);
+        if first {
+            tracing::info!(
+                width = pb.width(),
+                height = pb.height(),
+                "zero-copy video (VideoToolbox → Metal)"
+            );
+        }
+        self.video = Some(VideoTextures {
+            width: pb.width(),
+            height: pb.height(),
+            layout: PixelLayout::Nv12,
+            zero_copy: true,
+            planes: textures,
+            bind_group,
+        });
+        true
+    }
+
+    /// Hand a decoded picture to the GPU.
+    pub fn upload(&mut self, frame: &VideoFrame, sharpness: f32) {
+        match &frame.image {
+            FrameImage::Cpu(img) => self.upload_cpu(img, frame.width, frame.height),
+            #[cfg(target_os = "macos")]
+            FrameImage::PixelBuffer(pb) => {
+                if !self.upload_zero_copy(pb) {
+                    if self.metal_cache.is_some() {
+                        tracing::warn!("zero-copy upload failed, copying instead");
+                    }
+                    let img = pb.copy_to_cpu(&self.pool);
+                    self.upload_cpu(&img, frame.width, frame.height);
+                }
+            }
+        }
         self.video_params = VideoParams {
             texel: [1.0 / frame.width as f32, 1.0 / frame.height as f32],
             sharpness,
-            layout: match frame.layout {
+            layout: match frame.layout() {
                 PixelLayout::Nv12 => 0,
                 PixelLayout::Yuv420p => 1,
             },

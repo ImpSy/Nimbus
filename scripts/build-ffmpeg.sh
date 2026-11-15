@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# Build the minimal static FFmpeg Nimbus links against, into $FFMPEG_DIR.
+# Build the minimal static FFmpeg used by the Steam Deck (Linux) build, into
+# $FFMPEG_DIR: just the H.264 decoder with VA-API. Takes ~1 minute, runs once;
+# `mise install` / `mise run setup` call it automatically.
 #
-# Only what the client needs: H.264 / HEVC / Opus decoders, libswresample
-# (required by the Opus decoder) and the platform hardware decoder
-# (VideoToolbox on macOS, VA-API on Linux). Takes ~1 minute, runs once per
-# clone/platform; `mise install` / `mise run setup` call it automatically.
+# macOS doesn't need FFmpeg at all (VideoToolbox is used directly).
 set -euo pipefail
+
+if [ "$(uname -s)" = "Darwin" ]; then
+  echo "FFmpeg not needed on macOS (VideoToolbox is used directly)"
+  exit 0
+fi
 
 VERSION=9.0.2
 SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
 # Bump when the configure flags below change, to force a rebuild.
-CONFIG_REV=1
+CONFIG_REV=2
 
 PREFIX="${FFMPEG_DIR:?FFMPEG_DIR is not set - run this through mise (mise run ffmpeg)}"
 STAMP="$PREFIX/.nimbus-ffmpeg"
@@ -49,24 +53,15 @@ ARGS=(
   --enable-static --disable-shared --enable-pic
   --disable-programs --disable-doc --disable-debug --disable-network
   --disable-autodetect --disable-everything
-  --disable-avdevice --disable-avformat --disable-avfilter --disable-swscale
-  --enable-avcodec --enable-avutil --enable-swresample --enable-pthreads
-  --enable-decoder=h264,hevc,opus
-  --enable-parser=h264,hevc,opus
+  --disable-avdevice --disable-avformat --disable-avfilter --disable-swscale --disable-swresample
+  --enable-avcodec --enable-avutil --enable-pthreads
+  --enable-decoder=h264
 )
 
 case "$(uname -s)" in
-  Darwin)
-    ARGS+=(
-      --enable-videotoolbox
-      --enable-hwaccel=h264_videotoolbox,hevc_videotoolbox
-      --extra-cflags=-mmacosx-version-min=11.0
-      --extra-ldflags=-mmacosx-version-min=11.0
-    )
-    ;;
   Linux)
     if pkg-config --exists libva libva-drm libdrm 2>/dev/null; then
-      ARGS+=(--enable-vaapi --enable-libdrm --enable-hwaccel=h264_vaapi,hevc_vaapi)
+      ARGS+=(--enable-vaapi --enable-libdrm --enable-hwaccel=h264_vaapi)
     else
       echo "warning: libva/libdrm development files not found; building without VA-API" >&2
       echo "         (Debian/Ubuntu: apt install libva-dev libdrm-dev)" >&2

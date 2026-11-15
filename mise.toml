@@ -1,11 +1,12 @@
-# Everything needed to build and run Nimbus. On a fresh clone:
+# Everything needed to build and run Nimbus on an Apple Silicon Mac (and to
+# build the Steam Deck version in Docker). On a fresh clone:
 #
 #   mise trust && mise install      # toolchains + builds the static FFmpeg
 #   mise run app                    # build & run
 #   mise tasks                      # list everything else
 #
-# Only the system C toolchain (Xcode Command Line Tools on macOS,
-# build-essential + a few -dev packages on Linux) is assumed.
+# Only Xcode Command Line Tools are assumed on macOS. Supported targets:
+# Apple Silicon Macs and the Steam Deck (x86_64 Linux).
 
 [settings]
 # `[hooks]` below are an experimental mise feature.
@@ -15,29 +16,29 @@ experimental = true
 rust = { version = "1.100.0", components = "clippy,rustfmt" }
 # SDL3 is compiled from source by the sdl3-sys crate. Official Kitware
 # archives (the asdf cmake plugin produces an app bundle macOS refuses to run).
-"github:Kitware/CMake" = { version = "4.5.0", platforms = { macos-arm64 = { asset_pattern = "cmake-*-macos-universal.tar.gz", bin_path = "cmake-4.5.0-macos-universal/CMake.app/Contents/bin" }, macos-x64 = { asset_pattern = "cmake-*-macos-universal.tar.gz", bin_path = "cmake-4.5.0-macos-universal/CMake.app/Contents/bin" }, linux-x64 = { asset_pattern = "cmake-*-linux-x86_64.tar.gz", bin_path = "cmake-4.5.0-linux-x86_64/bin" }, linux-arm64 = { asset_pattern = "cmake-*-linux-aarch64.tar.gz", bin_path = "cmake-4.5.0-linux-aarch64/bin" } } }
-# Static FFmpeg *command line* (libx264 + libopus), only used to generate the
-# mock server's test media. The FFmpeg *libraries* are built by `mise run ffmpeg`.
-"github:eugeneware/ffmpeg-static" = { version = "b6.1.1", bin = "ffmpeg", platforms = { macos-arm64 = { asset_pattern = "ffmpeg-darwin-arm64.gz" }, macos-x64 = { asset_pattern = "ffmpeg-darwin-x64.gz" }, linux-x64 = { asset_pattern = "ffmpeg-linux-x64.gz" }, linux-arm64 = { asset_pattern = "ffmpeg-linux-arm64.gz" } } }
+"github:Kitware/CMake" = { version = "4.5.0", platforms = { macos-arm64 = { asset_pattern = "cmake-*-macos-universal.tar.gz", bin_path = "cmake-4.5.0-macos-universal/CMake.app/Contents/bin" }, linux-x64 = { asset_pattern = "cmake-*-linux-x86_64.tar.gz", bin_path = "cmake-4.5.0-linux-x86_64/bin" } } }
+# FFmpeg *command line* (prebuilt, libx264 + libopus): only used to generate
+# the mock server's test media. The app itself doesn't use FFmpeg on macOS.
+"github:eugeneware/ffmpeg-static" = { version = "b6.1.1", bin = "ffmpeg", platforms = { macos-arm64 = { asset_pattern = "ffmpeg-darwin-arm64.gz" }, linux-x64 = { asset_pattern = "ffmpeg-linux-x64.gz" } } }
 
 [env]
-# Minimal static FFmpeg (per platform; survives `cargo clean`). ffmpeg-sys-next
-# picks it up from here, so plain `cargo build` works inside the mise env.
+# Steam Deck build only: minimal static FFmpeg (H.264 + VA-API) built by
+# `mise run ffmpeg` into .deps/ (survives `cargo clean`).
 FFMPEG_DIR = "{{config_root}}/.deps/ffmpeg-{{os()}}-{{arch()}}"
 
 [hooks]
-# `mise install` on a fresh clone also builds the native dependencies.
+# `mise install` also prepares native dependencies (a no-op on macOS).
 postinstall = "mise run setup"
 
 # ---------------------------------------------------------------- setup
 
 [tasks.setup]
-description = "Build native dependencies (static FFmpeg)"
+description = "Prepare native dependencies (Linux: static FFmpeg; macOS: nothing)"
 depends = ["ffmpeg"]
 run = "echo 'Nimbus is ready: mise run app'"
 
 [tasks.ffmpeg]
-description = "Build the minimal static FFmpeg into $FFMPEG_DIR (no-op when up to date)"
+description = "Linux/Steam Deck: build the minimal static FFmpeg into $FFMPEG_DIR"
 run = "scripts/build-ffmpeg.sh"
 
 # ---------------------------------------------------------------- develop
@@ -72,7 +73,7 @@ description = "Format the code"
 run = "cargo fmt --all"
 
 [tasks.bench]
-description = "Hardware vs software H.264 decoder benchmark"
+description = "H.264 decoder benchmark (VideoToolbox / VA-API)"
 depends = ["ffmpeg"]
 run = "cargo test -p nimbus-media --release bench -- --ignored --nocapture"
 
