@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a self-contained target/Nimbus.app (SDL3 linked statically; video via VideoToolbox).
+# Build a self-contained target/Nimbus.app (pure Rust + system frameworks; video via VideoToolbox).
 # Usage: mise run bundle:macos
 set -euo pipefail
 cd "$(dirname "$0")/../.."

@@ -1,46 +1,270 @@
-//! Controller handling on the main thread.
+//! Controllers.
 //!
-//! Input is event driven: every SDL gamepad event updates the pad state and
-//! the new state is written to the stream immediately (the network thread is
-//! woken through mio), instead of the ~60 Hz polling browsers are limited to.
+//! A dedicated thread blocks on gilrs (IOKit HID on macOS, evdev on Linux)
+//! and forwards every change to the main thread's event loop, which merges
+//! it with keyboard emulation and writes the new state to the stream right
+//! away (the network thread is woken through mio) — instead of the ~60 Hz
+//! polling browsers are limited to.
+//!
+//! When Nimbus is started from Steam (always the case in Steam Deck game
+//! mode), Steam Input exposes every controller as a virtual Xbox pad and
+//! lists the physical devices behind them in
+//! `SDL_GAMECONTROLLER_IGNORE_DEVICES`; those are skipped so a controller
+//! never shows up twice.
 
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use sdl3::GamepadSubsystem;
-use sdl3::gamepad::{Axis, Button, Gamepad};
-use sdl3::joystick::JoystickId;
-use xcloud::protocol::input::{GamepadState, Vibration, button, stick_from_sdl, trigger_from_sdl};
+use gilrs::{Axis, Button, EventType, GamepadId, Gilrs, GilrsBuilder};
+use winit::event_loop::EventLoopProxy;
+use winit::keyboard::KeyCode;
+use xcloud::protocol::input::{GamepadState, button, stick, trigger};
 use xcloud::stream::Command;
 
-use crate::shared::{NavAction, Shared, UiMsg};
+use crate::shared::{AppEvent, NavAction, Shared, UiMsg};
 
 const MAX_SLOTS: u8 = 4;
 const NAV_REPEAT_DELAY: Duration = Duration::from_millis(400);
 const NAV_REPEAT_RATE: Duration = Duration::from_millis(110);
-const STICK_NAV_THRESHOLD: i16 = 20_000;
+const STICK_NAV_THRESHOLD: f32 = 0.6;
+
+/// A controller change, already translated to the stream's vocabulary.
+#[derive(Debug, Clone)]
+pub enum PadEvent {
+    Connected {
+        id: usize,
+        name: String,
+    },
+    Disconnected {
+        id: usize,
+    },
+    Button {
+        id: usize,
+        bit: u16,
+        down: bool,
+    },
+    Axis {
+        id: usize,
+        axis: PadAxis,
+        value: f32,
+    },
+}
+
+/// Sticks are -1.0..=1.0 with Y up; triggers 0.0..=1.0.
+#[derive(Debug, Clone, Copy)]
+pub enum PadAxis {
+    LeftX,
+    LeftY,
+    RightX,
+    RightY,
+    LeftTrigger,
+    RightTrigger,
+}
+
+// ---------------------------------------------------------------- reader
+
+/// Start the controller thread. It lives for the whole process.
+pub fn spawn_reader(proxy: EventLoopProxy<AppEvent>) {
+    std::thread::Builder::new()
+        .name("gamepads".into())
+        .spawn(move || reader(proxy))
+        .expect("spawn gamepad thread");
+}
+
+/// `0xVVVV/0xPPPP,...` lists, as set by Steam for SDL.
+#[derive(Default)]
+struct IgnoreList {
+    ignore: Vec<(u16, u16)>,
+    only: Vec<(u16, u16)>,
+}
+
+fn parse_device_list(list: &str) -> Vec<(u16, u16)> {
+    let hex = |s: &str| {
+        let s = s.trim();
+        let s = s
+            .strip_prefix("0x")
+            .or_else(|| s.strip_prefix("0X"))
+            .unwrap_or(s);
+        u16::from_str_radix(s, 16).ok()
+    };
+    list.split(',')
+        .filter_map(|e| {
+            let (v, p) = e.split_once('/')?;
+            Some((hex(v)?, hex(p)?))
+        })
+        .collect()
+}
+
+impl IgnoreList {
+    fn from_env() -> Self {
+        let var = |name: &str| parse_device_list(&std::env::var(name).unwrap_or_default());
+        Self {
+            ignore: var("SDL_GAMECONTROLLER_IGNORE_DEVICES"),
+            only: var("SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT"),
+        }
+    }
+
+    fn ignores(&self, vid: u16, pid: u16) -> bool {
+        self.ignore.contains(&(vid, pid))
+            || (!self.only.is_empty() && !self.only.contains(&(vid, pid)))
+    }
+}
+
+fn button_bit(b: Button) -> u16 {
+    match b {
+        Button::South => button::A,
+        Button::East => button::B,
+        Button::West => button::X,
+        Button::North => button::Y,
+        Button::Select => button::VIEW,
+        Button::Start => button::MENU,
+        Button::Mode => button::NEXUS,
+        Button::LeftThumb => button::LEFT_THUMB,
+        Button::RightThumb => button::RIGHT_THUMB,
+        // gilrs: "Trigger" = bumper, "Trigger2" = analog trigger.
+        Button::LeftTrigger => button::LEFT_SHOULDER,
+        Button::RightTrigger => button::RIGHT_SHOULDER,
+        Button::DPadUp => button::DPAD_UP,
+        Button::DPadDown => button::DPAD_DOWN,
+        Button::DPadLeft => button::DPAD_LEFT,
+        Button::DPadRight => button::DPAD_RIGHT,
+        _ => 0,
+    }
+}
+
+fn reader(proxy: EventLoopProxy<AppEvent>) {
+    // No gilrs filters: deadzones are applied by us (radial, configurable),
+    // and its jitter filter would only add work.
+    let mut gilrs = match GilrsBuilder::new().with_default_filters(false).build() {
+        Ok(g) => g,
+        Err(e) => {
+            tracing::warn!("controllers unavailable: {e}");
+            return;
+        }
+    };
+    let ignore = IgnoreList::from_env();
+    let mut ignored: HashSet<usize> = HashSet::new();
+    let send = |ev: PadEvent| proxy.send_event(AppEvent::Pad(ev)).is_ok();
+
+    // Controllers that were already plugged in (not reported as events on
+    // every platform).
+    let initial: Vec<GamepadId> = gilrs.gamepads().map(|(id, _)| id).collect();
+    for id in initial {
+        if let Some(ev) = connect(&gilrs, id, &ignore, &mut ignored)
+            && !send(ev)
+        {
+            return;
+        }
+    }
+
+    loop {
+        let Some(ev) = gilrs.next_event_blocking(None) else {
+            continue;
+        };
+        let id: usize = ev.id.into();
+        let axis = |axis, value| PadEvent::Axis { id, axis, value };
+        let btn = |bit, down| PadEvent::Button { id, bit, down };
+        let out: Vec<PadEvent> = match ev.event {
+            EventType::Connected => connect(&gilrs, ev.id, &ignore, &mut ignored)
+                .into_iter()
+                .collect(),
+            EventType::Disconnected => {
+                if ignored.remove(&id) {
+                    continue;
+                }
+                vec![PadEvent::Disconnected { id }]
+            }
+            _ if ignored.contains(&id) => continue,
+            EventType::ButtonPressed(b, _) | EventType::ButtonReleased(b, _) => {
+                let bit = button_bit(b);
+                if bit == 0 {
+                    continue;
+                }
+                vec![btn(bit, matches!(ev.event, EventType::ButtonPressed(..)))]
+            }
+            EventType::ButtonChanged(Button::LeftTrigger2, v, _) => {
+                vec![axis(PadAxis::LeftTrigger, v)]
+            }
+            EventType::ButtonChanged(Button::RightTrigger2, v, _) => {
+                vec![axis(PadAxis::RightTrigger, v)]
+            }
+            EventType::AxisChanged(a, v, _) => match a {
+                Axis::LeftStickX => vec![axis(PadAxis::LeftX, v)],
+                Axis::LeftStickY => vec![axis(PadAxis::LeftY, v)],
+                Axis::RightStickX => vec![axis(PadAxis::RightX, v)],
+                Axis::RightStickY => vec![axis(PadAxis::RightY, v)],
+                // Hats that the mapping didn't turn into buttons (Y up).
+                Axis::DPadX => vec![
+                    btn(button::DPAD_LEFT, v < -0.5),
+                    btn(button::DPAD_RIGHT, v > 0.5),
+                ],
+                Axis::DPadY => vec![
+                    btn(button::DPAD_UP, v > 0.5),
+                    btn(button::DPAD_DOWN, v < -0.5),
+                ],
+                _ => continue,
+            },
+            _ => continue,
+        };
+        for ev in out {
+            if !send(ev) {
+                return; // event loop gone: shutting down
+            }
+        }
+    }
+}
+
+fn connect(
+    gilrs: &Gilrs,
+    id: GamepadId,
+    ignore: &IgnoreList,
+    ignored: &mut HashSet<usize>,
+) -> Option<PadEvent> {
+    let pad = gilrs.gamepad(id);
+    let (vid, pid) = (pad.vendor_id().unwrap_or(0), pad.product_id().unwrap_or(0));
+    if ignore.ignores(vid, pid) {
+        tracing::info!(
+            name = pad.name(),
+            "ignoring controller {vid:04x}:{pid:04x} (exposed through Steam Input)"
+        );
+        ignored.insert(id.into());
+        return None;
+    }
+    tracing::debug!(
+        name = pad.name(),
+        os_name = pad.os_name(),
+        mapping = ?pad.mapping_source(),
+        "controller {vid:04x}:{pid:04x}"
+    );
+    Some(PadEvent::Connected {
+        id: id.into(),
+        name: pad.name().to_owned(),
+    })
+}
+
+// ---------------------------------------------------------------- state
 
 #[derive(Default, Clone, Copy)]
 struct RawState {
     buttons: u16,
-    lx: i16,
-    ly: i16,
-    rx: i16,
-    ry: i16,
-    lt: i16,
-    rt: i16,
+    lx: f32,
+    ly: f32,
+    rx: f32,
+    ry: f32,
+    lt: f32,
+    rt: f32,
 }
 
 struct Pad {
-    pad: Gamepad,
-    id: JoystickId,
+    id: usize,
     slot: u8,
     raw: RawState,
     dirty: bool,
     name: String,
 }
 
+/// Controller state on the main thread.
 pub struct Gamepads {
-    subsystem: GamepadSubsystem,
     pads: Vec<Pad>,
     /// Keyboard-emulated pad merged into slot 0.
     keyboard: RawState,
@@ -52,34 +276,9 @@ pub struct Gamepads {
     nexus_until: Option<Instant>,
 }
 
-fn button_bit(b: Button) -> u16 {
-    match b {
-        Button::South => button::A,
-        Button::East => button::B,
-        Button::West => button::X,
-        Button::North => button::Y,
-        Button::Back => button::VIEW,
-        Button::Start => button::MENU,
-        Button::Guide => button::NEXUS,
-        Button::LeftStick => button::LEFT_THUMB,
-        Button::RightStick => button::RIGHT_THUMB,
-        Button::LeftShoulder => button::LEFT_SHOULDER,
-        Button::RightShoulder => button::RIGHT_SHOULDER,
-        Button::DPadUp => button::DPAD_UP,
-        Button::DPadDown => button::DPAD_DOWN,
-        Button::DPadLeft => button::DPAD_LEFT,
-        Button::DPadRight => button::DPAD_RIGHT,
-        // Share / capture button on Series controllers → Nexus is the
-        // closest useful mapping; paddles are ignored.
-        Button::Misc1 => button::NEXUS,
-        _ => 0,
-    }
-}
-
 impl Gamepads {
-    pub fn new(subsystem: GamepadSubsystem) -> Self {
+    pub fn new() -> Self {
         Self {
-            subsystem,
             pads: Vec::new(),
             keyboard: RawState::default(),
             keyboard_dirty: false,
@@ -105,39 +304,30 @@ impl Gamepads {
     }
 
     /// Returns true if the set of pads changed.
-    pub fn handle_event(&mut self, ev: &sdl3::event::Event, shared: &Shared) -> bool {
-        use sdl3::event::Event;
+    pub fn handle_event(&mut self, ev: PadEvent, shared: &Shared) -> bool {
         match ev {
-            Event::GamepadAdded { which, .. } => {
-                if self.pads.iter().any(|p| p.id == *which) {
+            PadEvent::Connected { id, name } => {
+                if self.pads.iter().any(|p| p.id == id) {
                     return false;
                 }
                 let Some(slot) = self.free_slot() else {
                     return false;
                 };
-                match self.subsystem.open(*which) {
-                    Ok(pad) => {
-                        let name = pad.name().unwrap_or_else(|| "Controller".into());
-                        tracing::info!(%name, slot, "controller connected");
-                        let _ = pad.set_player_index(slot as u16);
-                        self.pads.push(Pad {
-                            pad,
-                            id: *which,
-                            slot,
-                            raw: RawState::default(),
-                            dirty: true,
-                            name,
-                        });
-                        if let Some(h) = shared.stream.lock().clone() {
-                            h.send(Command::GamepadConnected(slot, true));
-                        }
-                        return true;
-                    }
-                    Err(e) => tracing::warn!("failed to open controller: {e}"),
+                tracing::info!(%name, slot, "controller connected");
+                self.pads.push(Pad {
+                    id,
+                    slot,
+                    raw: RawState::default(),
+                    dirty: true,
+                    name,
+                });
+                if let Some(h) = shared.stream.lock().clone() {
+                    h.send(Command::GamepadConnected(slot, true));
                 }
+                return true;
             }
-            Event::GamepadRemoved { which, .. } => {
-                if let Some(i) = self.pads.iter().position(|p| p.id == *which) {
+            PadEvent::Disconnected { id } => {
+                if let Some(i) = self.pads.iter().position(|p| p.id == id) {
                     let p = self.pads.remove(i);
                     tracing::info!(name = %p.name, "controller disconnected");
                     if let Some(h) = shared.stream.lock().clone() {
@@ -150,97 +340,87 @@ impl Gamepads {
                     return true;
                 }
             }
-            Event::GamepadButtonDown { which, button, .. }
-            | Event::GamepadButtonUp { which, button, .. } => {
-                let down = matches!(ev, Event::GamepadButtonDown { .. });
-                if let Some(p) = self.pads.iter_mut().find(|p| p.id == *which) {
-                    let bit = button_bit(*button);
+            PadEvent::Button { id, bit, down } => {
+                if let Some(p) = self.pads.iter_mut().find(|p| p.id == id) {
+                    let before = p.raw.buttons;
                     if down {
                         p.raw.buttons |= bit;
                     } else {
                         p.raw.buttons &= !bit;
                     }
+                    p.dirty |= p.raw.buttons != before;
+                }
+            }
+            PadEvent::Axis { id, axis, value } => {
+                if let Some(p) = self.pads.iter_mut().find(|p| p.id == id) {
+                    let v = match axis {
+                        PadAxis::LeftX => &mut p.raw.lx,
+                        PadAxis::LeftY => &mut p.raw.ly,
+                        PadAxis::RightX => &mut p.raw.rx,
+                        PadAxis::RightY => &mut p.raw.ry,
+                        PadAxis::LeftTrigger => &mut p.raw.lt,
+                        PadAxis::RightTrigger => &mut p.raw.rt,
+                    };
+                    *v = value;
                     p.dirty = true;
                 }
             }
-            Event::GamepadAxisMotion {
-                which, axis, value, ..
-            } => {
-                if let Some(p) = self.pads.iter_mut().find(|p| p.id == *which) {
-                    match axis {
-                        Axis::LeftX => p.raw.lx = *value,
-                        Axis::LeftY => p.raw.ly = *value,
-                        Axis::RightX => p.raw.rx = *value,
-                        Axis::RightY => p.raw.ry = *value,
-                        Axis::TriggerLeft => p.raw.lt = *value,
-                        Axis::TriggerRight => p.raw.rt = *value,
-                    }
-                    p.dirty = true;
-                }
-            }
-            _ => {}
         }
         false
     }
 
     /// Keyboard → virtual controller (slot 0), Greenlight-compatible layout.
-    pub fn handle_key(&mut self, key: sdl3::keyboard::Keycode, down: bool) -> bool {
-        use sdl3::keyboard::Keycode as K;
-        let set_axis = |v: &mut i16, amount: i16| {
-            *v = if down { amount } else { 0 };
-        };
+    /// Physical keys, so WASD stays WASD on any keyboard layout.
+    pub fn handle_key(&mut self, key: KeyCode, down: bool) -> bool {
+        use KeyCode as K;
+        let amount = |v: f32| if down { v } else { 0.0 };
+        let k = &mut self.keyboard;
         let bit = match key {
-            K::Return => button::A,
+            K::Enter | K::NumpadEnter => button::A,
             K::Backspace => button::B,
-            K::X => button::X,
-            K::Y => button::Y,
-            K::Up => button::DPAD_UP,
-            K::Down => button::DPAD_DOWN,
-            K::Left => button::DPAD_LEFT,
-            K::Right => button::DPAD_RIGHT,
-            K::LeftBracket => button::LEFT_SHOULDER,
-            K::RightBracket => button::RIGHT_SHOULDER,
-            K::L => button::LEFT_THUMB,
-            K::R => button::RIGHT_THUMB,
-            K::M => button::MENU,
-            K::V => button::VIEW,
-            K::N => button::NEXUS,
+            K::KeyX => button::X,
+            K::KeyY => button::Y,
+            K::ArrowUp => button::DPAD_UP,
+            K::ArrowDown => button::DPAD_DOWN,
+            K::ArrowLeft => button::DPAD_LEFT,
+            K::ArrowRight => button::DPAD_RIGHT,
+            K::BracketLeft => button::LEFT_SHOULDER,
+            K::BracketRight => button::RIGHT_SHOULDER,
+            K::KeyL => button::LEFT_THUMB,
+            K::KeyR => button::RIGHT_THUMB,
+            K::KeyM => button::MENU,
+            K::KeyV => button::VIEW,
+            K::KeyN => button::NEXUS,
             K::Minus => {
-                set_axis(&mut self.keyboard.lt, i16::MAX);
-                self.keyboard_dirty = true;
-                return true;
+                k.lt = amount(1.0);
+                0
             }
-            K::Equals => {
-                set_axis(&mut self.keyboard.rt, i16::MAX);
-                self.keyboard_dirty = true;
-                return true;
+            K::Equal => {
+                k.rt = amount(1.0);
+                0
             }
-            K::W => {
-                set_axis(&mut self.keyboard.ly, i16::MIN);
-                self.keyboard_dirty = true;
-                return true;
+            K::KeyW => {
+                k.ly = amount(1.0);
+                0
             }
-            K::S => {
-                set_axis(&mut self.keyboard.ly, i16::MAX);
-                self.keyboard_dirty = true;
-                return true;
+            K::KeyS => {
+                k.ly = amount(-1.0);
+                0
             }
-            K::A => {
-                set_axis(&mut self.keyboard.lx, i16::MIN);
-                self.keyboard_dirty = true;
-                return true;
+            K::KeyA => {
+                k.lx = amount(-1.0);
+                0
             }
-            K::D => {
-                set_axis(&mut self.keyboard.lx, i16::MAX);
-                self.keyboard_dirty = true;
-                return true;
+            K::KeyD => {
+                k.lx = amount(1.0);
+                0
             }
             _ => return false,
         };
         if down {
-            self.keyboard.buttons |= bit;
+            k.buttons |= bit;
         } else {
-            self.keyboard.buttons &= !bit;
+            k.buttons &= !bit;
         }
         self.keyboard_dirty = true;
         true
@@ -259,16 +439,16 @@ impl Gamepads {
     }
 
     fn to_state(raw: &RawState, deadzone: f32) -> GamepadState {
-        let (lx, ly) = stick_from_sdl(raw.lx, raw.ly, deadzone);
-        let (rx, ry) = stick_from_sdl(raw.rx, raw.ry, deadzone);
+        let (lx, ly) = stick(raw.lx, raw.ly, deadzone);
+        let (rx, ry) = stick(raw.rx, raw.ry, deadzone);
         GamepadState {
             buttons: raw.buttons,
             left_x: lx,
             left_y: ly,
             right_x: rx,
             right_y: ry,
-            left_trigger: trigger_from_sdl(raw.lt),
-            right_trigger: trigger_from_sdl(raw.rt),
+            left_trigger: trigger(raw.lt),
+            right_trigger: trigger(raw.rt),
         }
     }
 
@@ -285,7 +465,7 @@ impl Gamepads {
             if self.nexus_until.is_some() {
                 raw.buttons |= button::NEXUS;
             }
-            let pick = |a: i16, b: i16| if b != 0 { b } else { a };
+            let pick = |a: f32, b: f32| if b != 0.0 { b } else { a };
             raw.lx = pick(raw.lx, k.lx);
             raw.ly = pick(raw.ly, k.ly);
             raw.lt = raw.lt.max(k.lt);
@@ -367,19 +547,19 @@ impl Gamepads {
     fn ui_navigation(&mut self, ui: &crossbeam_channel::Sender<UiMsg>) {
         // Combine all pads for navigation.
         let mut buttons = 0u16;
-        let (mut lx, mut ly) = (0i16, 0i16);
+        let (mut lx, mut ly) = (0f32, 0f32);
         for p in &self.pads {
             buttons |= p.raw.buttons;
-            if p.raw.lx.unsigned_abs() > lx.unsigned_abs() {
+            if p.raw.lx.abs() > lx.abs() {
                 lx = p.raw.lx;
             }
-            if p.raw.ly.unsigned_abs() > ly.unsigned_abs() {
+            if p.raw.ly.abs() > ly.abs() {
                 ly = p.raw.ly;
             }
         }
-        let action = if buttons & button::DPAD_UP != 0 || ly < -STICK_NAV_THRESHOLD {
+        let action = if buttons & button::DPAD_UP != 0 || ly > STICK_NAV_THRESHOLD {
             Some(NavAction::Up)
-        } else if buttons & button::DPAD_DOWN != 0 || ly > STICK_NAV_THRESHOLD {
+        } else if buttons & button::DPAD_DOWN != 0 || ly < -STICK_NAV_THRESHOLD {
             Some(NavAction::Down)
         } else if buttons & button::DPAD_LEFT != 0 || lx < -STICK_NAV_THRESHOLD {
             Some(NavAction::Left)
@@ -421,33 +601,36 @@ impl Gamepads {
         }
     }
 
-    /// Whether held navigation needs periodic re-evaluation (key repeat).
-    pub fn needs_tick(&self) -> bool {
-        self.nav_held.is_some() || self.nexus_until.is_some()
-    }
-
-    pub fn rumble(&mut self, v: &Vibration) {
-        let Some(p) = self.pads.iter_mut().find(|p| p.slot == v.gamepad_index) else {
-            return;
-        };
-        let scale = |pct: u8| ((pct.min(100) as u32 * 65535) / 100) as u16;
-        let duration = if v.duration_ms == 0 {
-            0
-        } else {
-            v.duration_ms as u32 + 20
-        };
-        let _ = p
-            .pad
-            .set_rumble(scale(v.left_motor), scale(v.right_motor), duration);
-        let _ = p
-            .pad
-            .set_rumble_triggers(scale(v.left_trigger), scale(v.right_trigger), duration);
-    }
-
-    pub fn stop_rumble(&mut self) {
-        for p in &mut self.pads {
-            let _ = p.pad.set_rumble(0, 0, 0);
-            let _ = p.pad.set_rumble_triggers(0, 0, 0);
+    /// Next time held navigation / a Nexus tap needs re-evaluating, if any.
+    pub fn next_tick(&self) -> Option<Instant> {
+        let nav = self.nav_held.map(|(_, since, last)| {
+            (since + NAV_REPEAT_DELAY).max(last + NAV_REPEAT_RATE) + Duration::from_millis(1)
+        });
+        match (nav, self.nexus_until) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn steam_ignore_list() {
+        let l = IgnoreList {
+            ignore: parse_device_list("0x28DE/0x1205, 0x054c/0x09cc,bogus,"),
+            only: vec![],
+        };
+        assert_eq!(l.ignore, vec![(0x28de, 0x1205), (0x054c, 0x09cc)]);
+        assert!(l.ignores(0x054c, 0x09cc));
+        assert!(!l.ignores(0x28de, 0x11ff));
+        let l = IgnoreList {
+            ignore: vec![],
+            only: vec![(0x28de, 0x11ff)],
+        };
+        assert!(l.ignores(0x054c, 0x09cc));
+        assert!(!l.ignores(0x28de, 0x11ff));
     }
 }

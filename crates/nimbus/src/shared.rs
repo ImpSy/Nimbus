@@ -1,11 +1,13 @@
-//! Messages and state shared between the main (SDL) thread and the UI /
+//! Messages and state shared between the main (window) thread and the UI /
 //! render thread.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use parking_lot::Mutex;
-use xcloud::protocol::input::Vibration;
+use winit::event_loop::EventLoopProxy;
 use xcloud::stream::StreamHandle;
+
+use crate::gamepad::PadEvent;
 
 /// Main thread → UI thread.
 #[derive(Debug, Clone)]
@@ -28,7 +30,10 @@ pub enum UiInput {
         pressed: bool,
     },
     PointerGone,
-    Scroll(egui::Vec2),
+    Scroll {
+        delta: egui::Vec2,
+        unit: egui::MouseWheelUnit,
+    },
     Key {
         key: egui::Key,
         pressed: bool,
@@ -55,8 +60,6 @@ pub enum NavAction {
 /// UI thread → main thread.
 #[derive(Debug, Clone)]
 pub enum MainMsg {
-    Rumble(Vibration),
-    StopRumble,
     SetFullscreen(bool),
     ToggleFullscreen,
     TextInput(bool),
@@ -66,22 +69,36 @@ pub enum MainMsg {
     Quit,
 }
 
+/// Everything that wakes the main thread's event loop.
+pub enum AppEvent {
+    Main(MainMsg),
+    Pad(PadEvent),
+}
+
+/// Sends [`MainMsg`]s to the main thread, waking its event loop right away.
+#[derive(Clone)]
+pub struct MainTx(pub EventLoopProxy<AppEvent>);
+
+impl MainTx {
+    pub fn send(&self, msg: MainMsg) -> Result<(), ()> {
+        self.0.send_event(AppEvent::Main(msg)).map_err(|_| ())
+    }
+}
+
 pub struct Shared {
     /// Set while a stream is live; gamepad input goes straight to it.
     pub stream: Mutex<Option<StreamHandle>>,
     /// Overlay menu open: controller drives the UI instead of the game.
     pub menu_open: AtomicBool,
     deadzone_bits: AtomicU32,
-    pub vibration: AtomicBool,
 }
 
 impl Shared {
-    pub fn new(deadzone: f32, vibration: bool) -> Self {
+    pub fn new(deadzone: f32) -> Self {
         Self {
             stream: Mutex::new(None),
             menu_open: AtomicBool::new(false),
             deadzone_bits: AtomicU32::new(deadzone.to_bits()),
-            vibration: AtomicBool::new(vibration),
         }
     }
 

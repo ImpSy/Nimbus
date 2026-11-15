@@ -44,7 +44,6 @@ pub struct Settings {
     pub start_fullscreen: bool,
     /// Radial stick deadzone, 0.0 ..= 0.3.
     pub deadzone: f32,
-    pub vibration: bool,
     /// Target audio buffer in milliseconds.
     pub audio_buffer_ms: u32,
     pub locale: String,
@@ -64,7 +63,6 @@ impl Default for Settings {
             fullscreen_on_stream: true,
             start_fullscreen: false,
             deadzone: 0.08,
-            vibration: true,
             audio_buffer_ms: 40,
             locale: "en-US".into(),
             xcloud_region: None,

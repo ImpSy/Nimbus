@@ -13,14 +13,14 @@ pub mod views;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{Receiver, Sender, bounded, select};
-use egui::{Event, FocusDirection, Key, Modifiers, MouseWheelSource, MouseWheelUnit, TouchPhase};
+use crossbeam_channel::{Receiver, bounded, select};
+use egui::{Event, FocusDirection, Key, Modifiers, MouseWheelSource, TouchPhase};
 
 use self::app::App;
 use crate::pipeline::DecodedPicture;
 use crate::render::Renderer;
 use crate::settings::{Paths, Settings};
-use crate::shared::{MainMsg, NavAction, Shared, UiInput, UiMsg};
+use crate::shared::{MainMsg, MainTx, NavAction, Shared, UiInput, UiMsg};
 
 pub struct UiInit {
     pub instance: wgpu::Instance,
@@ -29,7 +29,7 @@ pub struct UiInit {
     pub height: u32,
     pub scale: f32,
     pub ui_rx: Receiver<UiMsg>,
-    pub main_tx: Sender<MainMsg>,
+    pub main_tx: MainTx,
     pub shared: Arc<Shared>,
     pub settings: Settings,
     pub paths: Paths,
@@ -49,8 +49,8 @@ fn convert(input: UiInput, modifiers: &mut Modifiers) -> Option<Event> {
             modifiers: *modifiers,
         },
         UiInput::PointerGone => Event::PointerGone,
-        UiInput::Scroll(delta) => Event::MouseWheel {
-            unit: MouseWheelUnit::Line,
+        UiInput::Scroll { delta, unit } => Event::MouseWheel {
+            unit,
             delta,
             phase: TouchPhase::Move,
             source: MouseWheelSource::Unknown,

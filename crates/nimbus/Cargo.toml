@@ -22,7 +22,13 @@ parking_lot.workspace = true
 directories.workspace = true
 uuid.workspace = true
 
-sdl3 = { version = "0.22", features = ["raw-window-handle", "build-from-source-static"] }
+# Window + keyboard/mouse (X11 on Linux: Steam Deck game mode runs X11
+# clients through gamescope; desktop mode via XWayland).
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "x11"] }
+# Controllers: IOKit HID on macOS, evdev on Linux (Steam Input's virtual pad).
+gilrs = "0.11"
+# Audio output: CoreAudio on macOS, ALSA (→ PipeWire) on Linux.
+cpal = "0.18"
 wgpu = "30"
 egui = { version = "0.37", features = ["default_fonts"] }
 egui-wgpu = { version = "0.37", default-features = false, features = ["macos-window-resize-jitter-fix"] }

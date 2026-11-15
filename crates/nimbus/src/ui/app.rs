@@ -18,7 +18,7 @@ use xcloud::stream::{
 
 use crate::pipeline::{AudioPipeline, DecodeStats, DecodedPicture, VideoPipeline};
 use crate::settings::{Paths, Settings};
-use crate::shared::{MainMsg, NavAction, Shared};
+use crate::shared::{MainMsg, MainTx, NavAction, Shared};
 use crate::ui::images::Images;
 
 pub enum Load<T> {
@@ -154,7 +154,7 @@ pub struct App {
     pub paths: Paths,
     pub settings: Settings,
     pub shared: Arc<Shared>,
-    pub main_tx: Sender<MainMsg>,
+    pub main_tx: MainTx,
     backend_tx: Sender<Backend>,
     backend_rx: Receiver<Backend>,
     pub frame_notify: Sender<()>,
@@ -188,7 +188,7 @@ impl App {
         paths: Paths,
         settings: Settings,
         shared: Arc<Shared>,
-        main_tx: Sender<MainMsg>,
+        main_tx: MainTx,
         frame_notify: Sender<()>,
         wake: Sender<()>,
     ) -> Self {
@@ -519,7 +519,7 @@ impl App {
                         }
                     })
                     .collect();
-                games.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                games.sort_by_cached_key(|g| g.name.to_lowercase());
                 let regions = token
                     .offering_settings
                     .regions
@@ -721,7 +721,6 @@ impl App {
                 a.join();
             }
         });
-        let _ = self.main_tx.send(MainMsg::StopRumble);
         let _ = self.main_tx.send(MainMsg::ShowCursor(true));
         if self.settings.fullscreen_on_stream {
             let _ = self.main_tx.send(MainMsg::SetFullscreen(false));
@@ -833,10 +832,6 @@ impl App {
     pub fn save_settings(&mut self) {
         self.settings.save(&self.paths.settings());
         self.shared.set_deadzone(self.settings.deadzone);
-        self.shared.vibration.store(
-            self.settings.vibration,
-            std::sync::atomic::Ordering::Relaxed,
-        );
     }
 
     // ------------------------------------------------------------ updates
@@ -1005,12 +1000,9 @@ impl App {
                 StreamEvent::VideoSize { width, height } => {
                     s.server_video_size = Some((width, height))
                 }
-                StreamEvent::Rumble(v) => {
-                    tracing::debug!(?v, "rumble");
-                    if self.settings.vibration {
-                        let _ = self.main_tx.send(MainMsg::Rumble(v));
-                    }
-                }
+                // No rumble support (the controller backend can't drive it
+                // on macOS).
+                StreamEvent::Rumble(_) => {}
                 StreamEvent::Dialog(d) => {
                     s.dialog = Some(d);
                     self.shared

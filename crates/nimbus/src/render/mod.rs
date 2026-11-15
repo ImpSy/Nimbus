@@ -347,7 +347,7 @@ impl Renderer {
         let mut rgba = Vec::with_capacity((w * h * 4) as usize);
         for row in 0..h {
             let line = &data[(row * bpr) as usize..(row * bpr + w * 4) as usize];
-            for px in line.chunks_exact(4) {
+            for px in line.as_chunks::<4>().0 {
                 if bgra {
                     rgba.extend_from_slice(&[px[2], px[1], px[0], 255]);
                 } else {

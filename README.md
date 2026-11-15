@@ -12,7 +12,7 @@ and tuned for picture quality, frame rate and latency:
 ```
 UDP ─► str0m (WebRTC, sans-IO) ─► H.264 frames ─► VideoToolbox (Mac) / VA-API (Deck) ─► wgpu (YUV→RGB + sharpening) ─► display
                      ▲                                                                                        
-SDL3 controller events ─► input packets (sent immediately, no polling loop)
+controller events (gilrs, own thread) ─► input packets (sent immediately, no polling loop)
 ```
 
 | Consoles | Cloud library | Settings |
@@ -34,10 +34,9 @@ SDL3 controller events ─► input packets (sent immediately, no polling loop)
 | Jitter buffer | Chromium's adaptive playout delay buffer | **none**: a frame goes to the decoder the moment it is complete; losses are repaired with NACK/RTX (TWCC feedback keeps the server's bitrate ramping, as in a browser) |
 | Decode | Chromium pipeline (VA-API often disabled on Linux, i.e. software decode on the Deck) | Mac: **VideoToolbox called directly**, decoded frames rendered straight from GPU memory (zero copy). Deck: FFmpeg's H.264 decoder with **VA-API**. One frame in → one frame out, no reorder buffering |
 | Presentation | `<video>` / canvas through the browser compositor | dedicated render thread, "latest frame wins" mailbox, selectable mailbox / FIFO(1) / immediate presentation |
-| Controller input | `navigator.getGamepads()` polled every 16 ms | **event driven**: each SDL3 controller event is written to the data channel immediately (+16 ms heartbeat), so ~8 ms less input delay on average |
+| Controller input | `navigator.getGamepads()` polled every 16 ms | **event driven**: a dedicated thread blocks on the controller (IOKit HID on Mac, evdev on the Deck) and each change is written to the data channel immediately (+16 ms heartbeat), so ~8 ms less input delay on average |
 | Packet loss | frozen until a keyframe arrives | same freeze-until-keyframe behaviour (PLI + control message), but resumes after 700 ms if the encoder uses intra refresh instead |
 | Image | bilinear scaling | optional contrast-adaptive sharpening (CAS-style) on luma |
-| Rumble | dual-motor | dual-motor **+ trigger rumble** (SDL3) |
 | Remote play connectivity | host candidates + Teredo | host + Teredo + console direct IPs + **STUN server-reflexive** candidates |
 | macOS | — | Game Mode enabled in the app bundle (higher priority, doubled Bluetooth controller polling) |
 
@@ -67,20 +66,20 @@ overlay (F1) shows the live breakdown (network/queue + decode + render).
 
 ## Getting started
 
-Everything is managed by [mise](https://mise.jdx.dev): the Rust toolchain,
-CMake and the test-media tools. No Homebrew, and no FFmpeg on macOS: video is
-decoded by VideoToolbox and audio by a pure-Rust Opus decoder. On a fresh
-clone:
+Everything is managed by [mise](https://mise.jdx.dev): the Rust toolchain and
+the test-media tools. No Homebrew, and no C libraries to build on macOS: the
+window (winit), controllers (gilrs), audio output (cpal) and Opus decoding are
+Rust, and video is decoded by VideoToolbox. On a fresh clone:
 
 ```sh
 mise trust          # allow this repo's mise.toml
-mise install        # Rust, cmake, test-media tools
+mise install        # Rust + test-media tools
 mise run app        # build & run Nimbus
 ```
 
 The only prerequisite on the Mac is the Xcode Command Line Tools
-(`xcode-select --install`). SDL3 is compiled from source and linked
-statically, so the resulting app is self-contained.
+(`xcode-select --install`). The app only links system frameworks, so it is
+self-contained.
 
 `mise tasks` lists everything:
 
@@ -105,14 +104,18 @@ Plain `cargo …` commands work too inside a mise-activated shell.
 an Ubuntu 22.04 container (glibc 2.35), using the same mise toolchain plus a
 minimal static FFmpeg (H.264 decoder + VA-API, built from source), and
 writes `target/deck/nimbus` plus a tarball (and an AppImage when
-`appimagetool` is available). The binary only depends on glibc, libva and
-libdrm (all present on SteamOS); X11/Wayland/PipeWire are loaded at runtime by
-SDL. Then:
+`appimagetool` is available). The binary only depends on glibc, libva, libdrm,
+libudev and libasound (all present on SteamOS; ALSA is routed to PipeWire);
+the X11 libraries are loaded at runtime. Then:
 
 1. Desktop Mode → copy `target/deck/nimbus` to e.g. `~/Applications`.
 2. Steam → *Add a Non-Steam Game* → pick it.
 3. In Gaming Mode use the **Gamepad** controller layout. View + Menu opens
-   Nimbus' menu; the Steam and "…" buttons stay with Steam.
+   Nimbus' menu; the Steam and "…" buttons stay with Steam. Steam Input
+   presents the Deck's controls (and any PS4/PS5/Switch pad you connect) as a
+   virtual Xbox pad; Nimbus skips the physical devices Steam lists in
+   `SDL_GAMECONTROLLER_IGNORE_DEVICES`, so nothing shows up twice. Text
+   fields open Steam's on-screen keyboard.
 4. Sign in by scanning the QR code with your phone.
 
 ## Testing without a console: the mock server
@@ -120,8 +123,8 @@ SDL. Then:
 `crates/xcloud/examples/mock_server.rs` is a local stand-in for the streaming
 backend. It serves the GSSV REST API, answers the WebRTC offer with str0m,
 streams a looping H.264 + Opus test file, acknowledges the data-channel
-handshake, logs controller input, rumbles when you press **A** and shows a
-console dialog when you press **Y**.
+handshake, logs controller input and shows a console dialog when you press
+**Y**.
 
 ```sh
 mise run mock                                   # media + server + app, no sign-in
@@ -138,6 +141,7 @@ Debug environment variables:
 | `NIMBUS_EXIT_AFTER=<secs>` | quit after a delay |
 | `NIMBUS_TEST_NAV=rb,down,activate,wait,back` | replay controller navigation (one step every 400 ms) |
 | `NIMBUS_TEST_INPUT=1` | press (A) every second while streaming |
+| `NIMBUS_MUTE=1` | never open an audio device (implied by `NIMBUS_SCREENSHOT`, `NIMBUS_EXIT_AFTER` and `NIMBUS_TEST_*`, so automated runs are silent) |
 | `NIMBUS_HOME=<dir>` | config/cache directory (default: platform config dir) |
 | `NIMBUS_TAB=cloud\|settings` | start on another tab |
 | `RUST_LOG=info,xcloud=debug` | verbose protocol logging (SDP, ICE, data channels) |
@@ -151,7 +155,7 @@ Debug environment variables:
 | Max bitrate | `b=AS` cap for slow connections; Unlimited by default |
 | Presentation | Low latency (mailbox when available, else V-Sync with one frame in flight), V-Sync (two frames, smoothest), Immediate (may tear) |
 | Sharpening | contrast-adaptive sharpening strength |
-| Stick deadzone, vibration, audio buffer | |
+| Stick deadzone, audio buffer | |
 
 Settings and the account token are stored in the platform config directory
 (`~/Library/Application Support/dev.nimbus.Nimbus` on macOS,
@@ -166,13 +170,15 @@ crates/xcloud   protocol library (no UI): auth, GSSV API, catalog, WebRTC sessio
                 channel protocols, ICE/Teredo helpers, mock server example
 crates/media    H.264 decoding (VideoToolbox + zero-copy Metal on Mac, FFmpeg/VA-API
                 on the Deck) and pure-Rust Opus decoding
-crates/nimbus   the app: SDL3 window/controllers/audio, wgpu renderer, egui UI
+crates/nimbus   the app: winit window, gilrs controllers, cpal audio, wgpu renderer,
+                egui UI
 packaging/      macOS .app bundle script, Linux/Steam Deck Docker build (Dockerfile,
                 build.sh, e2e.sh, docker-run.sh)
 ```
 
-Threads: **main** (SDL events, controllers → network thread), **ui** (egui +
-wgpu, app state), **xcloud-net** (WebRTC + data channels, woken instantly via
+Threads: **main** (winit events; keyboard + controller state → network
+thread), **gamepads** (blocks on gilrs, wakes main), **ui** (egui + wgpu, app
+state), **xcloud-net** (WebRTC + data channels, woken instantly via
 `mio::Waker`), **video-decode**, **audio**, and two tokio workers for HTTP.
 
 ```
@@ -191,6 +197,9 @@ scripts/        build-ffmpeg.sh (Deck build), mock-media.sh, mock.sh
   version is taken from the server's SDP answer.
 * Not implemented yet: voice chat (microphone), touch controls, native
   mouse & keyboard input for xCloud titles, multiple accounts.
+* No rumble: the controller library (gilrs) can't drive it on macOS.
+  Controllers are read through IOKit HID (Mac) / evdev (Deck) with the SDL
+  GameControllerDB mappings (Xbox, DualShock 4, DualSense, Switch Pro, …).
 * The Steam Deck still uses FFmpeg (H.264 + VA-API only). The pure-Rust
   VA-API option (`cros-codecs`) holds decoded frames until its reference
   buffer fills (up to ~4 frames, ~67 ms at 1080p60), so switching needs a

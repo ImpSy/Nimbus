@@ -254,11 +254,10 @@ impl InputEncoder {
     }
 }
 
-/// Convert an SDL-style axis (-32768..=32767, Y down positive) into the
-/// stream's XInput convention, applying a radial deadzone.
-pub fn stick_from_sdl(x: i16, y: i16, deadzone: f32) -> (i16, i16) {
-    let fx = x as f32 / 32767.0;
-    let fy = -(y as f32) / 32767.0;
+/// Convert a stick position (-1.0..=1.0 per axis, Y up positive) into the
+/// stream's XInput range, applying a radial deadzone.
+pub fn stick(x: f32, y: f32, deadzone: f32) -> (i16, i16) {
+    let (fx, fy) = (x.clamp(-1.0, 1.0), y.clamp(-1.0, 1.0));
     let mag = (fx * fx + fy * fy).sqrt();
     if mag <= deadzone || mag == 0.0 {
         return (0, 0);
@@ -270,10 +269,9 @@ pub fn stick_from_sdl(x: i16, y: i16, deadzone: f32) -> (i16, i16) {
     (to_i16(fx * k), to_i16(fy * k))
 }
 
-/// SDL trigger (0..=32767) to the stream's 0..=65535 range.
-pub fn trigger_from_sdl(v: i16) -> u16 {
-    let v = v.max(0) as u32;
-    ((v * 65535) / 32767).min(65535) as u16
+/// Trigger travel (0.0..=1.0) to the stream's 0..=65535 range.
+pub fn trigger(v: f32) -> u16 {
+    (v.clamp(0.0, 1.0) * 65535.0).round() as u16
 }
 
 #[cfg(test)]
@@ -375,10 +373,11 @@ mod tests {
 
     #[test]
     fn deadzone() {
-        assert_eq!(stick_from_sdl(1000, 1000, 0.1), (0, 0));
-        let (x, y) = stick_from_sdl(32767, 0, 0.1);
-        assert_eq!((x, y), (32767, 0));
-        let (_, y) = stick_from_sdl(0, -32768, 0.1);
-        assert_eq!(y, 32767); // up is positive
+        assert_eq!(stick(0.03, 0.03, 0.1), (0, 0));
+        assert_eq!(stick(1.0, 0.0, 0.1), (32767, 0));
+        assert_eq!(stick(0.0, 1.0, 0.1), (0, 32767)); // up is positive
+        assert_eq!(stick(0.0, -1.0, 0.1), (0, -32767));
+        assert_eq!(trigger(0.0), 0);
+        assert_eq!(trigger(1.0), 65535);
     }
 }

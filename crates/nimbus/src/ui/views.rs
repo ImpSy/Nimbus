@@ -697,12 +697,6 @@ fn settings(app: &mut App, ui: &mut Ui) {
             }
             changed |= choice(
                 ui,
-                "Vibration",
-                &mut s.vibration,
-                &[(true, "On"), (false, "Off")],
-            );
-            changed |= choice(
-                ui,
                 "Audio buffer",
                 &mut s.audio_buffer_ms,
                 &[(20, "20 ms"), (40, "40 ms"), (60, "60 ms"), (100, "100 ms")],

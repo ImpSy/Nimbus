@@ -1,5 +1,5 @@
 //! Media pipeline threads: video decode → render mailbox, audio decode →
-//! SDL audio stream.
+//! audio output.
 
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -9,9 +9,9 @@ use crossbeam_channel::{Receiver, Sender, TrySendError};
 use nimbus_media::audio::{CHANNELS, OpusDecoder, SAMPLE_RATE};
 use nimbus_media::video::{VideoDecoder, VideoFrame};
 use parking_lot::Mutex;
-use sdl3::sys::audio as sdl_audio;
 use xcloud::stream::{Command, EncodedAudioPacket, EncodedVideoFrame};
 
+use crate::audio_out::{self, AudioOut};
 use crate::shared::Shared;
 
 /// How long we hide corrupted video waiting for a keyframe after loss before
@@ -198,18 +198,9 @@ fn video_thread(
     tracing::debug!("video decode thread exiting");
 }
 
-/// Audio: Opus → SDL audio stream with a bounded buffer to keep latency low.
+/// Audio: Opus → output device, with a bounded buffer to keep latency low.
 pub struct AudioPipeline {
     thread: Option<JoinHandle<()>>,
-}
-
-struct SdlStream(*mut sdl_audio::SDL_AudioStream);
-unsafe impl Send for SdlStream {}
-
-impl Drop for SdlStream {
-    fn drop(&mut self) {
-        unsafe { sdl_audio::SDL_DestroyAudioStream(self.0) };
-    }
 }
 
 impl AudioPipeline {
@@ -231,68 +222,47 @@ impl AudioPipeline {
 }
 
 fn audio_thread(rx: Receiver<EncodedAudioPacket>, buffer_ms: u32) {
-    let spec = sdl_audio::SDL_AudioSpec {
-        format: sdl_audio::SDL_AUDIO_F32,
-        channels: CHANNELS as i32,
-        freq: SAMPLE_RATE as i32,
-    };
-    let stream = unsafe {
-        sdl_audio::SDL_OpenAudioDeviceStream(
-            sdl_audio::SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
-            &spec,
-            None,
-            std::ptr::null_mut(),
-        )
-    };
-    if stream.is_null() {
-        tracing::error!("failed to open audio device: {}", sdl3::get_error());
-        // Drain so the network thread never blocks on us.
-        while rx.recv().is_ok() {}
-        return;
-    }
-    let stream = SdlStream(stream);
-    let driver = unsafe { sdl_audio::SDL_GetCurrentAudioDriver() };
-    if !driver.is_null() {
-        let name = unsafe { std::ffi::CStr::from_ptr(driver) }.to_string_lossy();
-        tracing::info!(driver = %name, "audio output opened");
-    }
-    let bytes_per_ms = (SAMPLE_RATE / 1000 * CHANNELS * 4) as i32;
-    let target = buffer_ms.max(10) as i32 * bytes_per_ms;
-    let max = target * 2 + 20 * bytes_per_ms;
-
+    debug_assert_eq!(CHANNELS, 2);
     let mut dec = match OpusDecoder::new() {
         Ok(d) => d,
         Err(e) => {
             tracing::error!("opus decoder: {e}");
+            // Drain so the network thread never blocks on us.
             while rx.recv().is_ok() {}
             return;
         }
     };
+    let muted = audio_out::muted();
+    if muted {
+        tracing::info!("audio muted (automated run or NIMBUS_MUTE)");
+    }
+    let mut out: Option<AudioOut> = None;
+    let mut retry_at = Instant::now();
     let mut pcm = Vec::with_capacity(4096);
-    let mut playing = false;
     while let Ok(p) = rx.recv() {
         pcm.clear();
         if let Err(e) = dec.decode(&p.data, &mut pcm) {
             tracing::debug!("opus: {e}");
             continue;
         }
-        let queued = unsafe { sdl_audio::SDL_GetAudioStreamQueued(stream.0) };
-        if queued > max {
-            // Too much latency accumulated: drop this packet to catch up.
+        if muted {
             continue;
         }
-        let bytes: &[u8] = bytemuck::cast_slice(&pcm);
-        unsafe {
-            sdl_audio::SDL_PutAudioStreamData(stream.0, bytes.as_ptr().cast(), bytes.len() as i32);
+        if out.as_ref().is_some_and(AudioOut::failed) {
+            out = None;
+            retry_at = Instant::now() + Duration::from_millis(500);
         }
-        let queued = queued + bytes.len() as i32;
-        if !playing && queued >= target / 2 {
-            unsafe { sdl_audio::SDL_ResumeAudioStreamDevice(stream.0) };
-            playing = true;
-        } else if playing && queued <= bytes.len() as i32 {
-            // Underrun: rebuild a little cushion before resuming.
-            unsafe { sdl_audio::SDL_PauseAudioStreamDevice(stream.0) };
-            playing = false;
+        if out.is_none() && Instant::now() >= retry_at {
+            match AudioOut::open(SAMPLE_RATE, buffer_ms) {
+                Ok(o) => out = Some(o),
+                Err(e) => {
+                    tracing::error!("cannot open audio output: {e:#}");
+                    retry_at = Instant::now() + Duration::from_secs(2);
+                }
+            }
+        }
+        if let Some(o) = &mut out {
+            o.push(&pcm);
         }
     }
     tracing::debug!("audio thread exiting");
