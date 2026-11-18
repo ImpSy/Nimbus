@@ -22,6 +22,11 @@ rust = { version = "1.100.0", components = "clippy,rustfmt" }
 # Steam Deck build only: minimal static FFmpeg (H.264 + VA-API) built by
 # `mise run ffmpeg` into .deps/ (survives `cargo clean`).
 FFMPEG_DIR = "{{config_root}}/.deps/ffmpeg-{{os()}}-{{arch()}}"
+# Keep the builder's home directory (and so their username) out of the
+# binaries: panic messages and line tables embed ~/.cargo/registry paths.
+# Set for every build (not just bundling) so switching tasks doesn't
+# invalidate the build cache.
+RUSTFLAGS = "--remap-path-prefix={{env.HOME}}=~"
 
 [hooks]
 # `mise install` also prepares native dependencies (a no-op on macOS).
