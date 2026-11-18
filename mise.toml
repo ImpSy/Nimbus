@@ -102,6 +102,16 @@ description = "Self-contained target/Nimbus.app"
 depends = ["ffmpeg"]
 run = "packaging/macos/bundle.sh"
 
+[tasks."dmg:macos"]
+description = "target/Nimbus-<version>-macos-arm64.dmg (drag-to-Applications installer)"
+depends = ["ffmpeg"]
+run = "packaging/macos/dmg.sh"
+
+[tasks."release:macos"]
+description = "Build the DMG and publish GitHub release v<version> with generated notes"
+depends = ["ffmpeg"]
+run = "packaging/macos/release.sh"
+
 [tasks."deck:image"]
 description = "Build the Linux / Steam Deck build container (needs Docker)"
 run = "docker build --platform linux/amd64 -t nimbus-build packaging/linux"

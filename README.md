@@ -92,6 +92,8 @@ self-contained.
 | `mise run mock` | run Nimbus against the local mock server (no account needed) |
 | `mise run mock:server` / `mock:media` | just the mock server / regenerate its test media |
 | `mise run bundle:macos` | self-contained `target/Nimbus.app` |
+| `mise run dmg:macos` | `target/Nimbus-<version>-macos-arm64.dmg` (drag-to-Applications installer) |
+| `mise run release:macos` | build the DMG and publish GitHub release `v<version>` with generated notes (`--draft` / `--prerelease` pass through) |
 | `mise run deck:build` | Steam Deck (x86_64 Linux) release in Docker → `target/deck/` |
 | `mise run deck:e2e` | headless Linux end-to-end test in Docker (Xvfb + lavapipe + mock server) |
 | `mise run ffmpeg` / `setup` | Steam Deck build only: static FFmpeg (H.264 + VA-API); a no-op on macOS |
@@ -172,7 +174,7 @@ crates/media    H.264 decoding (VideoToolbox + zero-copy Metal on Mac, FFmpeg/VA
                 on the Deck) and pure-Rust Opus decoding
 crates/nimbus   the app: winit window, gilrs controllers, cpal audio, wgpu renderer,
                 egui UI
-packaging/      macOS .app bundle script, Linux/Steam Deck Docker build (Dockerfile,
+packaging/      macOS .app / DMG / release scripts, Linux/Steam Deck Docker build (Dockerfile,
                 build.sh, e2e.sh, docker-run.sh)
 ```
 
