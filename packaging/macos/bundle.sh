@@ -10,7 +10,10 @@ APP=target/Nimbus.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp target/release/nimbus "$APP/Contents/MacOS/nimbus"
-sips -s format icns packaging/icons/nimbus-512.png --out "$APP/Contents/Resources/nimbus.icns" >/dev/null
+# sips can't write a 1024px icns, so go through iconutil (macOS scales the smaller sizes itself).
+ICONSET=$(mktemp -d)/nimbus.iconset
+mkdir "$ICONSET" && cp packaging/icons/nimbus-1024.png "$ICONSET/icon_512x512@2x.png"
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/nimbus.icns"
 VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
